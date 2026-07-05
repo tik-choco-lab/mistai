@@ -126,9 +126,24 @@ arbitration (something like tc-pdf-viewer's claimRoom/releaseRoom).
 
 ## Getting started
 
-### npm install
+### Install
 
-Add a file reference to each app's `package.json`:
+The package is not published to npm. Install it straight from GitHub — the
+`prepare` script builds `dist/` automatically during install:
+
+```json
+{
+  "dependencies": {
+    "@tik-choco/mistai": "github:tik-choco-lab/mistai"
+  }
+}
+```
+
+To pin a specific version, append a tag or commit:
+`github:tik-choco-lab/mistai#v0.1.0`.
+
+Alternatively, when developing the library and an app side by side with
+sibling checkouts, a local file reference avoids reinstalling on every change:
 
 ```json
 {
@@ -138,8 +153,8 @@ Add a file reference to each app's `package.json`:
 }
 ```
 
-Run `npm install` once inside mistai so the `prepare` script builds `dist/`,
-then run `npm install` in the app.
+With `file:`, run `npm install` once inside mistai first so the `prepare`
+script builds `dist/`, then run `npm install` in the app.
 
 ### Pattern A: apps with a mistlib node (tc-translate / tc-pdf-viewer / tc-chat / tc-storage / tc-vrm-viewer)
 
