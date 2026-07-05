@@ -1,0 +1,49 @@
+{
+  "name": "@tik-choco/mistai",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Shared LLM Network library: wire protocol, consumer/provider services, voice (TTS/STT), OpenAI-compatible upstream client, and preact hooks.",
+  "type": "module",
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tik-choco-lab/mistai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tik-choco-lab/mistai/issues"
+  },
+  "homepage": "https://github.com/tik-choco-lab/mistai#readme",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./preact": {
+      "types": "./dist/preact/index.d.ts",
+      "default": "./dist/preact/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "prepare": "npm run build"
+  },
+  "devDependencies": {
+    "preact": "^10.29.1",
+    "typescript": "~6.0.2",
+    "vitest": "^4.0.0"
+  },
+  "peerDependencies": {
+    "preact": "^10.0.0"
+  },
+  "peerDependenciesMeta": {
+    "preact": {
+      "optional": true
+    }
+  }
+}
