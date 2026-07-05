@@ -1,6 +1,6 @@
 {
   "name": "@tik-choco/mistai",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": false,
   "description": "Shared LLM Network library: wire protocol, consumer/provider services, voice (TTS/STT), OpenAI-compatible upstream client, and preact hooks.",
   "type": "module",
@@ -23,13 +23,14 @@
     "./preact": {
       "types": "./dist/preact/index.d.ts",
       "default": "./dist/preact/index.js"
-    }
+    },
+    "./ui.css": "./dist/preact/ui.css"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node -e \"require('fs').copyFileSync('src/preact/ui.css','dist/preact/ui.css')\"",
     "test": "vitest run",
     "prepare": "npm run build"
   },

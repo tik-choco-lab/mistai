@@ -35,6 +35,20 @@ export interface MistaiMessages {
     done: string;
     error: string;
   };
+  /** Strings used by the shared UI components (`@tik-choco/mistai/preact`). */
+  ui: {
+    /** Tooltip/aria label on the consumer indicator toggle. */
+    connectionTitle: string;
+    details: string;
+    nodeId: string;
+    peersLine: (total: number, consumers: number) => string;
+    requestLog: string;
+    noRequests: string;
+    showMore: (remaining: number) => string;
+    charCount: (count: number) => string;
+    /** Suffix after the "Serving" label in the provider summary line. */
+    connectedSummary: (peers: number, requests: number) => string;
+  };
   errors: Record<MistaiErrorCode, string>;
 }
 
@@ -63,6 +77,17 @@ export const MESSAGES_EN: MistaiMessages = {
     streaming: "Generating",
     done: "Done",
     error: "Error",
+  },
+  ui: {
+    connectionTitle: "LLM Network connection",
+    details: "Details",
+    nodeId: "Node ID",
+    peersLine: (total, consumers) => `Connected peers: ${total} (consumers: ${consumers})`,
+    requestLog: "Request log",
+    noRequests: "No requests yet.",
+    showMore: (remaining) => `Show more (${remaining} left)`,
+    charCount: (count) => `${count} chars`,
+    connectedSummary: (peers, requests) => `peers ${peers} · ${requests} requests`,
   },
   errors: {
     NO_ROOM_ID: "LLM Network room ID is not set.",
@@ -110,6 +135,17 @@ export const MESSAGES_JA: MistaiMessages = {
     streaming: "生成中",
     done: "完了",
     error: "エラー",
+  },
+  ui: {
+    connectionTitle: "LLM Network 接続状態",
+    details: "詳細",
+    nodeId: "Node ID",
+    peersLine: (total, consumers) => `接続ピア数: ${total}（うち consumer: ${consumers}）`,
+    requestLog: "リクエストログ",
+    noRequests: "まだリクエストはありません。",
+    showMore: (remaining) => `もっと見る（残り ${remaining} 件）`,
+    charCount: (count) => `${count}文字`,
+    connectedSummary: (peers, requests) => `peer ${peers} · 処理 ${requests}件`,
   },
   errors: {
     NO_ROOM_ID: "LLM Network の Room ID が設定されていません。",
