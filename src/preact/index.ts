@@ -5,6 +5,17 @@
 // useNetworkConsumerConnection.ts and useNetworkProvider.ts, decoupled from
 // app settings.
 
+export {
+  ConsumerStatusIndicator,
+  ConsumerStepIndicator,
+  ProviderStatusPanel,
+  consumerErrorText,
+  type ConsumerStatusIndicatorProps,
+  type ProviderStatusPanelProps,
+  type ProviderPanelStatus,
+  type ProviderPeerInfo,
+} from "./ui.js";
+
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ConsumerClient, type ConsumerStatus } from "../client.js";
 import { Network, type MistNodeLike } from "../node.js";

@@ -1,0 +1,233 @@
+/* Default styles for the shared LLM Network UI (@tik-choco/mistai/preact).
+ * Theme by defining the --mistai-* custom properties on a parent element:
+ *   --mistai-border, --mistai-surface, --mistai-text, --mistai-text-muted,
+ *   --mistai-text-strong
+ * Each falls back to a neutral light-theme value. */
+
+.mistai-status-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--mistai-border, #d6dee8);
+  border-radius: 8px;
+  background: var(--mistai-surface, #ffffff);
+}
+
+.mistai-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--mistai-text, #1f2937);
+}
+
+.mistai-status-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.mistai-status-dot.connecting,
+.mistai-status-dot.joining,
+.mistai-status-dot.searching {
+  background: #b45309;
+  animation: mistai-status-pulse 1.2s ease-in-out infinite;
+}
+
+.mistai-status-dot.connected {
+  background: #16a34a;
+}
+
+.mistai-status-dot.error {
+  background: #dc2626;
+}
+
+@keyframes mistai-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.mistai-status-detail {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--mistai-text-muted, #64748b);
+}
+
+.mistai-status-detail.error {
+  color: #b91c1c;
+}
+
+.mistai-status-details {
+  margin-top: 4px;
+}
+
+.mistai-status-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--mistai-text-muted, #64748b);
+  user-select: none;
+}
+
+.mistai-status-details[open] > summary {
+  margin-bottom: 6px;
+}
+
+.mistai-status-details h4 {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  color: var(--mistai-text-strong, #0f172a);
+}
+
+.mistai-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--mistai-text-muted, #64748b);
+}
+
+.mistai-peer-list,
+.mistai-log-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mistai-peer-list li,
+.mistai-log-list li {
+  font-size: 12px;
+  color: var(--mistai-text-muted, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mistai-log-more {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--mistai-border, #d6dee8);
+  border-radius: 999px;
+  background: var(--mistai-surface, #ffffff);
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mistai-log-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  margin-right: 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--mistai-text-strong, #0f172a);
+  background: #e2e8f0;
+}
+
+.mistai-log-badge.started {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.mistai-log-badge.streaming {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.mistai-log-badge.done {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.mistai-log-badge.error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.mistai-consumer-indicator {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.mistai-consumer-indicator-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--mistai-border, #d6dee8);
+  border-radius: 999px;
+  background: var(--mistai-surface, #ffffff);
+  color: var(--mistai-text, #1f2937);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mistai-consumer-indicator-detail {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  min-width: 200px;
+  padding: 10px 12px;
+  border: 1px solid var(--mistai-border, #d6dee8);
+  border-radius: 8px;
+  background: var(--mistai-surface, #ffffff);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+}
+
+.mistai-consumer-indicator-detail p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--mistai-text-muted, #64748b);
+}
+
+.mistai-consumer-indicator-detail p.error {
+  color: #b91c1c;
+}
+
+.mistai-status-timestamp {
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mistai-step-indicator {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.mistai-step-indicator li {
+  padding: 2px 8px;
+  border: 1px solid var(--mistai-border, #d6dee8);
+  border-radius: 999px;
+  background: var(--mistai-surface, #ffffff);
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 11px;
+}
+
+.mistai-step-indicator li.done {
+  border-color: #16a34a;
+  color: #16a34a;
+}
+
+.mistai-step-indicator li.current {
+  border-color: #b45309;
+  color: #b45309;
+  font-weight: 700;
+}
