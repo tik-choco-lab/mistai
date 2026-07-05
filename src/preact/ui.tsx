@@ -183,9 +183,11 @@ export function ProviderStatusPanel({
       {status !== "idle" ? (
         <details class="mistai-status-details">
           <summary>{messages.ui.details}</summary>
-          <p class="mistai-status-detail">
-            {messages.ui.nodeId}: {(ownNodeId ?? "").slice(0, 8)}
-          </p>
+          {ownNodeId ? (
+            <p class="mistai-status-detail">
+              {messages.ui.nodeId}: {ownNodeId.slice(0, 8)}
+            </p>
+          ) : null}
           <p class="mistai-status-detail">{messages.ui.peersLine(peers.length, consumerCount)}</p>
           {peers.length > 0 ? (
             <ul class="mistai-peer-list">
