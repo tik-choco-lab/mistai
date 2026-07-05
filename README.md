@@ -80,6 +80,10 @@ arbitration (something like tc-pdf-viewer's claimRoom/releaseRoom).
 - **base64** — `blobToBase64` / `base64ToBlob` / `chunkBase64` /
   `VOICE_CHUNK_SIZE` (12 KB). `blobToBase64` does not use FileReader (works in
   Node too).
+- **messages** — `MistaiMessages` catalogs `MESSAGES_EN` / `MESSAGES_JA`
+  (canonical status labels + one message per error code) and
+  `formatMistaiError(err, messages, fallback?)` /
+  `formatMistaiCode(code, messages)`. See "Error handling and localization".
 - **id** — `randomId()` (UUID that also works outside secure contexts),
   `getPersistentNodeId(storageKey = "mistai:node-id")` (falls back to memory
   when localStorage is unavailable; never throws).
@@ -272,25 +276,34 @@ room.onMessage((fromId, bytes) => {
 The library's default messages are English, but apps are expected to be
 multilingual. Every failure the library generates locally is a `MistaiError`
 with a stable `code` (`MistaiErrorCode`), so UIs should localize by mapping
-the code rather than displaying or matching the English `message`:
+the code rather than displaying or matching the English `message`.
+
+For consistency across apps, the library ships canonical UI wording as
+`MistaiMessages` catalogs (`MESSAGES_EN`, `MESSAGES_JA`): status labels for
+the consumer lifecycle (full and step-indicator forms), provider status, the
+provider request log, and one message per error code. Use these instead of
+hand-rolling labels so terminology doesn't drift between apps:
 
 ```ts
-import { MistaiError } from '@tik-choco/mistai'
+import { MESSAGES_JA, formatMistaiError, formatMistaiCode } from '@tik-choco/mistai'
 
-const MESSAGES_JA: Partial<Record<MistaiErrorCode, string>> = {
-  PROVIDER_NOT_FOUND: 'プロバイダが見つかりません',
-  PROVIDER_DISCONNECTED: 'プロバイダとの接続が切断されました。',
-  REQUEST_TIMEOUT: 'LLM リクエストがタイムアウトしました。',
-  // ...
-}
+// Status labels
+label = MESSAGES_JA.consumerPhase[status.phase]
 
+// Error display (REMOTE_ERROR passes the remote-authored message through)
 try {
   await llmClient.requestChat(roomId, messages)
 } catch (err) {
-  const text = err instanceof MistaiError ? (MESSAGES_JA[err.code] ?? err.message) : String(err)
-  showToast(text)
+  showToast(formatMistaiError(err, MESSAGES_JA, 'Request failed.'))
 }
+
+// ConsumerStatus error phase carries a code when one applies
+message = formatMistaiCode(status.code, MESSAGES_JA) ?? status.message
 ```
+
+Apps supporting other languages provide their own `MistaiMessages` object
+with the same shape (the `errors` record is exhaustive over
+`MistaiErrorCode`, so a missing translation is a type error).
 
 - `MistaiError.details` carries interpolation values (e.g. `{ status: 401 }`
   for `UPSTREAM_HTTP_ERROR`).

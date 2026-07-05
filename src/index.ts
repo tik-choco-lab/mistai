@@ -3,6 +3,7 @@
 // node (or any compatible transport) is injected by the app.
 
 export * from "./errors.js";
+export * from "./messages.js";
 export * from "./protocol.js";
 export * from "./base64.js";
 export * from "./id.js";
