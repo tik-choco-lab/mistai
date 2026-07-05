@@ -128,6 +128,22 @@ arbitration (something like tc-pdf-viewer's claimRoom/releaseRoom).
   after joining and to each newly connected peer, and marks peers that send
   `consumer_hello` as consumers.
 
+Shared UI components (all take an optional `messages: MistaiMessages`,
+default `MESSAGES_EN`; import the default styles via
+`import '@tik-choco/mistai/ui.css'` and theme with `--mistai-*` CSS custom
+properties — border, surface, text, text-muted, text-strong):
+
+- `ConsumerStatusIndicator({ status, updatedAt?, variant?, note?, messages? })`
+  — colored dot + status label with a click-to-open detail popover (step
+  progression, provider id, localized error).
+- `ConsumerStepIndicator({ status, messages? })` — standalone
+  idle → joining → searching → connected step row.
+- `ProviderStatusPanel({ status, statusUpdatedAt?, errorMessage?, ownNodeId?, peers, consumerCount, logs, notice?, logPageSize?, messages? })`
+  — provider summary line, app-supplied `notice` slot, collapsible peer list
+  and request log with paging.
+- `consumerErrorText(status, messages)` — localized error string for an
+  error-phase `ConsumerStatus` (catalog code first, raw message fallback).
+
 ## Getting started
 
 ### Install
