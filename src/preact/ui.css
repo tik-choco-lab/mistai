@@ -172,6 +172,11 @@
   color: var(--mistai-text, #1f2937);
   font-size: 12px;
   cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mistai-consumer-indicator-label {
+  white-space: nowrap;
 }
 
 .mistai-consumer-indicator-detail {
