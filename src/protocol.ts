@@ -41,7 +41,29 @@ export interface LlmErrorMsg {
   type: "llm_error";
   id: string;
   message: string;
+  /**
+   * Optional, backward-compatible machine-readable reason. Known value:
+   * `"unsupported_service"` (the peer does not provide this service at all,
+   * as opposed to an upstream failure).
+   */
+  code?: string;
 }
+
+/**
+ * Service names a provider can announce in `provider_hello.services`.
+ * The wire field stays `string[]` so future service names pass through;
+ * consumers should match against these known names and ignore the rest.
+ */
+export type KnownService = "chat" | "tts" | "stt" | "embedding";
+
+/**
+ * What a `provider_hello` without `services` means: peers predating the
+ * extension are all chat providers (voice-capable peers must announce it).
+ */
+export const DEFAULT_PROVIDER_SERVICES: readonly string[] = ["chat"];
+
+/** Known `code` value for capability-mismatch `llm_error` / `voice_error`. */
+export const ERROR_CODE_UNSUPPORTED_SERVICE = "unsupported_service";
 
 export interface ProviderHelloMsg {
   v: 1;
@@ -52,6 +74,17 @@ export interface ProviderHelloMsg {
    * "unknown list".
    */
   models?: string[];
+  /**
+   * Optional, backward-compatible extension: which services this provider
+   * answers ("chat" | "tts" | "stt" | "embedding"). Absence means
+   * `DEFAULT_PROVIDER_SERVICES` (legacy chat-only peer) — see helloServices().
+   */
+  services?: string[];
+}
+
+/** Resolves the effective service list of a hello, applying the legacy default. */
+export function helloServices(msg: ProviderHelloMsg): readonly string[] {
+  return msg.services ?? DEFAULT_PROVIDER_SERVICES;
 }
 
 export interface ConsumerHelloMsg {
@@ -117,6 +150,8 @@ export interface VoiceErrorMsg {
   type: "voice_error";
   id: string;
   message: string;
+  /** Optional machine-readable reason; see LlmErrorMsg.code. */
+  code?: string;
 }
 
 export type ProtocolMessage =
@@ -201,15 +236,18 @@ export function decode(data: Uint8Array | string): ProtocolMessage | null {
 
   switch (m.type) {
     case "provider_hello": {
-      // `models` is a backward-compatible optional extension. An invalid
-      // `models` value drops just that field rather than rejecting the whole
-      // message, so a misbehaving/future peer can't take down provider
+      // `models` / `services` are backward-compatible optional extensions.
+      // An invalid value drops just that field rather than rejecting the
+      // whole message, so a misbehaving/future peer can't take down provider
       // discovery over an optional extension. Non-string entries are filtered.
+      const hello: ProviderHelloMsg = { v: 1, type: "provider_hello" };
       if (Array.isArray(m.models)) {
-        const models = m.models.filter((entry): entry is string => typeof entry === "string");
-        return { v: 1, type: "provider_hello", models };
+        hello.models = m.models.filter(isNonEmptyString);
       }
-      return { v: 1, type: "provider_hello" };
+      if (Array.isArray(m.services)) {
+        hello.services = m.services.filter(isNonEmptyString);
+      }
+      return hello;
     }
     case "consumer_hello":
       return { v: 1, type: "consumer_hello" };
@@ -242,7 +280,10 @@ export function decode(data: Uint8Array | string): ProtocolMessage | null {
     case "llm_error": {
       if (!isNonEmptyString(m.id)) return null;
       if (typeof m.message !== "string") return null;
-      return { v: 1, type: "llm_error", id: m.id, message: m.message };
+      // `code` is an optional extension: an invalid value drops the field,
+      // never the error itself (losing the error would be worse).
+      const err: LlmErrorMsg = { v: 1, type: "llm_error", id: m.id, message: m.message };
+      return typeof m.code === "string" ? { ...err, code: m.code } : err;
     }
     case "raft_message": {
       if (!isNonEmptyString(m.payload)) return null;
@@ -291,7 +332,8 @@ export function decode(data: Uint8Array | string): ProtocolMessage | null {
     case "voice_error": {
       if (!isNonEmptyString(m.id)) return null;
       if (typeof m.message !== "string") return null;
-      return { v: 1, type: "voice_error", id: m.id, message: m.message };
+      const err: VoiceErrorMsg = { v: 1, type: "voice_error", id: m.id, message: m.message };
+      return typeof m.code === "string" ? { ...err, code: m.code } : err;
     }
     default:
       return null;

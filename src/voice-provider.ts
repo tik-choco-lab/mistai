@@ -6,9 +6,11 @@
 // Ported from tc-translate/src/lib/mistllm/voice-provider.ts, with the size
 // and concurrency limits made overridable via options.
 
+import { ERROR_CODE_UNSUPPORTED_SERVICE } from "./protocol.js";
 import type { ProtocolMessage, SttRequestMsg, TtsRequestMsg } from "./protocol.js";
 import type { ProviderLogEntry } from "./provider.js";
 import { base64ToBlob, blobToBase64, chunkBase64 } from "./base64.js";
+import { MistaiError } from "./errors.js";
 
 export type SendFn = (toId: string, msg: ProtocolMessage) => void;
 export type SynthesizeFn = (
@@ -27,6 +29,29 @@ export type TranscribeFn = (
 // make the provider buffer: total audio per upload, and concurrent uploads.
 export const MAX_AUDIO_BASE64_CHARS = 24 * 1024 * 1024;
 export const MAX_CONCURRENT_STT_STREAMS = 16;
+
+/** Which voice capability an incoming request needed. */
+export type VoiceServiceKind = "tts" | "stt";
+
+/**
+ * Sends a `voice_error` with `code: ERROR_CODE_UNSUPPORTED_SERVICE` for a
+ * tts_request/stt_request this peer cannot answer at all (no synthesize/
+ * transcribe endpoint configured for that specific service). Exported so
+ * hosts — the preact `useNetworkProvider` hook, or an app driving the wire
+ * protocol directly (e.g. tc-note) — can reject voice traffic immediately
+ * instead of silently dropping it; also reused internally below when a
+ * VoiceProviderService exists but only one of the two upstream functions is
+ * actually configured.
+ */
+export function rejectVoiceRequest(send: SendFn, fromId: string, requestId: string, service: VoiceServiceKind): void {
+  send(fromId, {
+    v: 1,
+    type: "voice_error",
+    id: requestId,
+    message: `this provider does not support ${service}`,
+    code: ERROR_CODE_UNSUPPORTED_SERVICE,
+  });
+}
 
 export interface VoiceProviderOptions {
   onRequestLog?: (entry: ProviderLogEntry) => void;
@@ -104,6 +129,14 @@ export class VoiceProviderService {
       });
       this.log({ id: msg.id, fromId, model, status: "done", startedAt, charCount: blob.size });
     } catch (err) {
+      // The injected synthesize() throws this specific error when the host
+      // (e.g. useNetworkProvider) was constructed without a TTS endpoint —
+      // surface it as a capability mismatch, not a generic upstream failure.
+      if (err instanceof MistaiError && err.code === "ENDPOINT_NOT_CONFIGURED") {
+        rejectVoiceRequest(this.send, fromId, msg.id, "tts");
+        this.log({ id: msg.id, fromId, model, status: "error", startedAt, charCount: 0, detail: ERROR_CODE_UNSUPPORTED_SERVICE });
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       this.send(fromId, { v: 1, type: "voice_error", id: msg.id, message });
       this.log({ id: msg.id, fromId, model, status: "error", startedAt, charCount: 0, detail: message });
@@ -145,6 +178,13 @@ export class VoiceProviderService {
       this.send(fromId, { v: 1, type: "stt_response", id: msg.id, text });
       this.log({ id: msg.id, fromId, model, status: "done", startedAt, charCount: text.length });
     } catch (err) {
+      // Same capability-mismatch special case as handleTts, for the
+      // transcribe() side (e.g. synthesize configured but transcribe isn't).
+      if (err instanceof MistaiError && err.code === "ENDPOINT_NOT_CONFIGURED") {
+        rejectVoiceRequest(this.send, fromId, msg.id, "stt");
+        this.log({ id: msg.id, fromId, model, status: "error", startedAt, charCount: 0, detail: ERROR_CODE_UNSUPPORTED_SERVICE });
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       this.send(fromId, { v: 1, type: "voice_error", id: msg.id, message });
       this.log({ id: msg.id, fromId, model, status: "error", startedAt, charCount: 0, detail: message });

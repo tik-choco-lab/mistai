@@ -19,12 +19,19 @@ upstream client, and preact hooks.
 
 ### Roles
 
-- **Consumer**: joins a room and sends `llm_request` / `tts_request` /
-  `stt_request` to the first provider that announces itself via
-  `provider_hello`.
-- **Provider**: joins a room, broadcasts `provider_hello`, forwards incoming
+- **Consumer**: joins a room, collects every `provider_hello` into a provider
+  table, and picks a provider per request: filter by required service
+  (`chat` / `tts` / `stt`; a hello without `services` counts as chat-only),
+  prefer an exact `models` match when a model is requested (falling back to a
+  provider that advertises no models, sent without a model), pick randomly
+  among ties, and fail over once to the next candidate on disconnect, timeout,
+  or an `unsupported_service` error.
+- **Provider**: joins a room, broadcasts `provider_hello` (with `services`
+  derived from which upstream functions are injected), forwards incoming
   requests to the injected upstream functions (`LlmCallFn` / `SynthesizeFn` /
-  `TranscribeFn`), and streams the results back in chunks.
+  `TranscribeFn`), streams the results back in chunks, and rejects requests
+  for services it does not offer with an immediate `llm_error` / `voice_error`
+  carrying `code: "unsupported_service"`.
 
 ### Protocol v1 message reference
 
@@ -124,9 +131,11 @@ arbitration (something like tc-pdf-viewer's claimRoom/releaseRoom).
 - `useNetworkProvider({ enabled, roomId, createNode, callLlm?, synthesize?, transcribe?, advertisedModels?, ... })`
   — manages the provider join/leave lifecycle and returns
   `{ status, statusUpdatedAt, errorMessage, peers, peerCount, consumerCount, logs, ownNodeId, roomId }`.
-  Broadcasts `provider_hello` (with `models` when `advertisedModels` is set)
-  after joining and to each newly connected peer, and marks peers that send
-  `consumer_hello` as consumers.
+  Broadcasts `provider_hello` (with `models` when `advertisedModels` is set,
+  and `services` always, derived from which of `callLlm` / `synthesize` /
+  `transcribe` are injected) after joining and to each newly connected peer,
+  and marks peers that send `consumer_hello` as consumers. Requests for a
+  service that is not injected are rejected with `code: "unsupported_service"`.
 
 Shared UI components (all take an optional `messages: MistaiMessages`,
 default `MESSAGES_EN`; import the default styles via
