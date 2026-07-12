@@ -5,9 +5,10 @@
 // shape (providerId/models preserved, new `providers` array added).
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConsumerClient, selectProvider, type ConsumerStatus } from "../client.js";
+import { ConsumerClient, isFailoverEligible, selectProvider, type ConsumerStatus } from "../client.js";
+import { MistaiError } from "../errors.js";
 import { EVENT_PEER_DISCONNECTED, EVENT_RAW } from "../node.js";
-import { encode, type LlmRequestMsg } from "../protocol.js";
+import { ERROR_CODE_UNSUPPORTED_SERVICE, encode, type LlmRequestMsg } from "../protocol.js";
 import { FakeMistNode, flushMicrotasks } from "./fake-node.js";
 
 function makeClient(options: { providerWaitTimeoutMs?: number; requestTimeoutMs?: number } = {}) {
@@ -228,6 +229,25 @@ describe("ConsumerClient chat default timeout", () => {
     const req = chatRequests(nodes[0])[0];
     nodes[0].emit(EVENT_RAW, "prov1", encode({ v: 1, type: "llm_response_done", id: req.msg.id, content: "ok" }));
     await expect(promise).resolves.toBe("ok");
+  });
+});
+
+describe("isFailoverEligible (exported retry policy)", () => {
+  it("qualifies disconnects, timeouts, and unsupported_service rejections", () => {
+    expect(isFailoverEligible(new MistaiError("PROVIDER_DISCONNECTED", "gone"))).toBe(true);
+    expect(isFailoverEligible(new MistaiError("REQUEST_TIMEOUT", "slow"))).toBe(true);
+    expect(isFailoverEligible(new MistaiError("TTS_TIMEOUT", "slow"))).toBe(true);
+    expect(isFailoverEligible(new MistaiError("STT_TIMEOUT", "slow"))).toBe(true);
+    expect(
+      isFailoverEligible(new MistaiError("REMOTE_ERROR", "nope", { code: ERROR_CODE_UNSUPPORTED_SERVICE })),
+    ).toBe(true);
+  });
+
+  it("does not qualify generic remote errors or non-MistaiError values", () => {
+    expect(isFailoverEligible(new MistaiError("REMOTE_ERROR", "upstream 500"))).toBe(false);
+    expect(isFailoverEligible(new MistaiError("REMOTE_ERROR", "bad model", { code: "unknown_model" }))).toBe(false);
+    expect(isFailoverEligible(new Error("plain"))).toBe(false);
+    expect(isFailoverEligible(undefined)).toBe(false);
   });
 });
 

@@ -151,8 +151,15 @@ export function selectProvider(
   return { providerId: pickRandom(eligible)[0], model };
 }
 
-/** Whether `err` justifies a single failover attempt to another eligible provider. */
-function isFailoverEligible(err: unknown): boolean {
+/**
+ * Whether `err` justifies a single failover attempt to another eligible
+ * provider: disconnects, request timeouts, and capability-mismatch
+ * (`unsupported_service`) rejections qualify; other remote errors don't, so
+ * real upstream failures aren't hidden behind a silent provider switch.
+ * Exported for apps that own their transport (Pattern B) and implement the
+ * retry loop themselves — keeps their policy identical to ConsumerClient's.
+ */
+export function isFailoverEligible(err: unknown): boolean {
   if (!(err instanceof MistaiError)) return false;
   if (err.code === "PROVIDER_DISCONNECTED") return true;
   if (err.code === "REQUEST_TIMEOUT" || err.code === "TTS_TIMEOUT" || err.code === "STT_TIMEOUT") return true;
