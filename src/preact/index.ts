@@ -19,9 +19,9 @@ export {
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ConsumerClient, type ConsumerStatus } from "../client.js";
 import { Network, type MistNodeLike } from "../node.js";
-import { ProviderService, type LlmCallFn, type ProviderLogEntry } from "../provider.js";
-import { VoiceProviderService, type SynthesizeFn, type TranscribeFn } from "../voice-provider.js";
-import type { ProviderHelloMsg } from "../protocol.js";
+import { ProviderService, rejectLlmRequest, type LlmCallFn, type ProviderLogEntry, type SendFn } from "../provider.js";
+import { VoiceProviderService, rejectVoiceRequest, type SynthesizeFn, type TranscribeFn } from "../voice-provider.js";
+import type { ProtocolMessage, ProviderHelloMsg } from "../protocol.js";
 import { MistaiError } from "../errors.js";
 
 /** Tracks the consumer-side LLM Network connection lifecycle for display in the UI. */
@@ -91,11 +91,11 @@ export interface UseNetworkProviderOptions {
   /** Factory for the app's vendored mist node (e.g. `(id) => new MistNode(id)`). */
   createNode: (nodeId: string) => MistNodeLike;
   nodeIdStorageKey?: string;
-  /** Upstream chat handler; llm_request traffic is ignored when omitted. */
+  /** Upstream chat handler; llm_request is rejected with a code:"unsupported_service" llm_error when omitted. */
   callLlm?: LlmCallFn;
-  /** Upstream TTS handler; tts_request fails with voice_error when omitted. */
+  /** Upstream TTS handler; tts_request is rejected with a code:"unsupported_service" voice_error when omitted. */
   synthesize?: SynthesizeFn;
-  /** Upstream STT handler; stt_request fails with voice_error when omitted. */
+  /** Upstream STT handler; stt_request is rejected with a code:"unsupported_service" voice_error when omitted. */
   transcribe?: TranscribeFn;
   /** Model ids advertised via provider_hello.models. */
   advertisedModels?: string[];
@@ -113,6 +113,69 @@ export interface UseNetworkProviderResult {
   logs: ProviderLogEntry[];
   ownNodeId: string | null;
   roomId: string;
+}
+
+/**
+ * Derives the `provider_hello.services` list from which upstream functions
+ * are actually injected: "chat" for callLlm, "tts" for synthesize, "stt" for
+ * transcribe. Always returns an array (possibly empty) — services is meant to
+ * be advertised explicitly, not omitted, so consumers never fall back to the
+ * legacy chat-only default (`DEFAULT_PROVIDER_SERVICES`) for a hello that
+ * actually came from this hook. Exported as a pure helper so it's unit
+ * testable without rendering the hook.
+ */
+export function deriveHelloServices(fns: {
+  callLlm?: UseNetworkProviderOptions["callLlm"];
+  synthesize?: UseNetworkProviderOptions["synthesize"];
+  transcribe?: UseNetworkProviderOptions["transcribe"];
+}): string[] {
+  const services: string[] = [];
+  if (fns.callLlm) services.push("chat");
+  if (fns.synthesize) services.push("tts");
+  if (fns.transcribe) services.push("stt");
+  return services;
+}
+
+export interface ProviderRequestRouterDeps {
+  providerService: ProviderService | null;
+  voiceProviderService: VoiceProviderService | null;
+  send: SendFn;
+}
+
+/**
+ * Routes an incoming llm_request / tts_request / stt_request to the matching
+ * service, or rejects it immediately with an `unsupported_service`-coded
+ * error when this provider doesn't advertise that capability at all (the
+ * matching service is `null`, i.e. the corresponding upstream function was
+ * never injected). No-ops for every other message type.
+ *
+ * stt_request arrives as a seq-numbered chunk stream; when there's no
+ * transcribe function at all we reject only the seq 0 chunk (which carries
+ * the request's identity) and silently ignore the rest, rather than sending
+ * one voice_error per chunk.
+ *
+ * Exported (not just used internally by useNetworkProvider) so a non-preact
+ * host driving the wire protocol directly (e.g. tc-note) gets the same
+ * capability-mismatch behavior for free.
+ */
+export function routeProviderRequest(fromId: string, msg: ProtocolMessage, deps: ProviderRequestRouterDeps): void {
+  if (msg.type === "llm_request") {
+    if (deps.providerService) {
+      void deps.providerService.handleMessage(fromId, msg);
+    } else {
+      rejectLlmRequest(deps.send, fromId, msg.id);
+    }
+    return;
+  }
+  if (msg.type === "tts_request" || msg.type === "stt_request") {
+    if (deps.voiceProviderService) {
+      void deps.voiceProviderService.handleMessage(fromId, msg);
+      return;
+    }
+    if (msg.type === "tts_request" || msg.seq === 0) {
+      rejectVoiceRequest(deps.send, fromId, msg.id, msg.type === "tts_request" ? "tts" : "stt");
+    }
+  }
 }
 
 /**
@@ -179,11 +242,18 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
     };
 
     const helloMessage = (): ProviderHelloMsg => {
-      const models = optionsRef.current.advertisedModels;
-      return models && models.length > 0
-        ? { v: 1, type: "provider_hello", models }
-        : { v: 1, type: "provider_hello" };
+      const opts = optionsRef.current;
+      const services = deriveHelloServices(opts);
+      const models = opts.advertisedModels;
+      return {
+        v: 1,
+        type: "provider_hello",
+        services,
+        ...(models && models.length > 0 ? { models } : {}),
+      };
     };
+
+    const sendToNetwork: SendFn = (toId, msg) => network.send(toId, msg);
 
     const network = new Network({
       createNode: (nodeId) => optionsRef.current.createNode(nodeId),
@@ -214,11 +284,11 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
             network.send(fromId, helloMessage());
             return;
           }
-          if (msg.type === "tts_request" || msg.type === "stt_request") {
-            void voiceProviderServiceRef.current?.handleMessage(fromId, msg);
-            return;
-          }
-          void providerServiceRef.current?.handleMessage(fromId, msg);
+          routeProviderRequest(fromId, msg, {
+            providerService: providerServiceRef.current,
+            voiceProviderService: voiceProviderServiceRef.current,
+            send: sendToNetwork,
+          });
         },
       },
     });
@@ -226,7 +296,7 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
     const callLlm = optionsRef.current.callLlm;
     const providerService = callLlm
       ? new ProviderService(
-          (toId, msg) => network.send(toId, msg),
+          sendToNetwork,
           (messages, model, onDelta) => {
             const fn = optionsRef.current.callLlm;
             if (!fn) throw new MistaiError("ENDPOINT_NOT_CONFIGURED", "This provider has no LLM endpoint configured.");
@@ -239,7 +309,7 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
     const hasVoice = Boolean(optionsRef.current.synthesize || optionsRef.current.transcribe);
     const voiceProviderService = hasVoice
       ? new VoiceProviderService(
-          (toId, msg) => network.send(toId, msg),
+          sendToNetwork,
           async (text, model, voice) => {
             const fn = optionsRef.current.synthesize;
             if (!fn) throw new MistaiError("ENDPOINT_NOT_CONFIGURED", "This provider has no TTS endpoint configured.");

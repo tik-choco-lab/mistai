@@ -31,6 +31,8 @@ export interface VoiceConsumerOptions {
 }
 
 interface PendingTts {
+  /** Which provider this request was sent to, so a disconnect can reject just its requests. */
+  providerId: string;
   mime: string;
   parts: string[];
   size: number;
@@ -41,6 +43,8 @@ interface PendingTts {
 }
 
 interface PendingStt {
+  /** Which provider this request was sent to, so a disconnect can reject just its requests. */
+  providerId: string;
   timer: ReturnType<typeof setTimeout>;
   resolve: (text: string) => void;
   reject: (err: Error) => void;
@@ -71,7 +75,7 @@ export class VoiceConsumerService {
       const timer = setTimeout(() => {
         if (this.ttsPending.delete(id)) reject(new MistaiError("TTS_TIMEOUT", "TTS request timed out."));
       }, this.requestTimeoutMs);
-      this.ttsPending.set(id, { mime: "audio/mpeg", parts: [], size: 0, nextSeq: 0, timer, resolve, reject });
+      this.ttsPending.set(id, { providerId, mime: "audio/mpeg", parts: [], size: 0, nextSeq: 0, timer, resolve, reject });
       const req: TtsRequestMsg = { v: 1, type: "tts_request", id, text: params.text };
       this.send(providerId, {
         ...req,
@@ -91,7 +95,7 @@ export class VoiceConsumerService {
       const timer = setTimeout(() => {
         if (this.sttPending.delete(id)) reject(new MistaiError("STT_TIMEOUT", "STT request timed out."));
       }, this.requestTimeoutMs);
-      this.sttPending.set(id, { timer, resolve, reject });
+      this.sttPending.set(id, { providerId, timer, resolve, reject });
       parts.forEach((data, index) => {
         const base: SttRequestMsg = {
           v: 1,
@@ -111,7 +115,7 @@ export class VoiceConsumerService {
     });
   }
 
-  /** Rejects every in-flight request, e.g. when the serving provider disconnects. */
+  /** Rejects every in-flight request, e.g. when tearing down the whole session. */
   rejectAll(err: Error): void {
     for (const entry of this.ttsPending.values()) {
       clearTimeout(entry.timer);
@@ -123,6 +127,25 @@ export class VoiceConsumerService {
       entry.reject(err);
     }
     this.sttPending.clear();
+  }
+
+  /**
+   * Rejects only the in-flight requests sent to `providerId`, e.g. when that
+   * one provider disconnects — requests to other providers are left intact.
+   */
+  rejectByProvider(providerId: string, err: Error): void {
+    for (const [id, entry] of [...this.ttsPending.entries()]) {
+      if (entry.providerId !== providerId) continue;
+      this.ttsPending.delete(id);
+      clearTimeout(entry.timer);
+      entry.reject(err);
+    }
+    for (const [id, entry] of [...this.sttPending.entries()]) {
+      if (entry.providerId !== providerId) continue;
+      this.sttPending.delete(id);
+      clearTimeout(entry.timer);
+      entry.reject(err);
+    }
   }
 
   /** Feeds an incoming protocol message into request correlation. No-ops for unrelated types. */
@@ -166,18 +189,19 @@ export class VoiceConsumerService {
       return;
     }
     if (msg.type === "voice_error") {
+      const details = msg.code !== undefined ? { code: msg.code } : undefined;
       const tts = this.ttsPending.get(msg.id);
       if (tts) {
         this.ttsPending.delete(msg.id);
         clearTimeout(tts.timer);
-        tts.reject(new MistaiError("REMOTE_ERROR", msg.message));
+        tts.reject(new MistaiError("REMOTE_ERROR", msg.message, details));
         return;
       }
       const stt = this.sttPending.get(msg.id);
       if (stt) {
         this.sttPending.delete(msg.id);
         clearTimeout(stt.timer);
-        stt.reject(new MistaiError("REMOTE_ERROR", msg.message));
+        stt.reject(new MistaiError("REMOTE_ERROR", msg.message, details));
       }
     }
   }
