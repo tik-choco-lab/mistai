@@ -37,7 +37,12 @@ describe("ConsumerClient", () => {
     expect(statuses.map((s) => s.phase)).toEqual(["joining", "searching"]);
 
     node.emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello", models: ["m1", "m2"] }));
-    expect(client.status).toEqual({ phase: "connected", providerId: "prov1", models: ["m1", "m2"] });
+    expect(client.status).toEqual({
+      phase: "connected",
+      providerId: "prov1",
+      models: ["m1", "m2"],
+      providers: [{ id: "prov1", models: ["m1", "m2"], services: ["chat"] }],
+    });
 
     // ...and a directed consumer_hello goes back to the provider that greeted us.
     const sent = node.sentMessages();
@@ -48,14 +53,20 @@ describe("ConsumerClient", () => {
     const { client, nodes } = makeClient();
     await client.connect("room1");
     nodes[0].emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello" }));
-    expect(client.status).toEqual({ phase: "connected", providerId: "prov1" });
+    expect(client.status).toEqual({
+      phase: "connected",
+      providerId: "prov1",
+      providers: [{ id: "prov1", models: undefined, services: ["chat"] }],
+    });
   });
 
   it("routes a chat request to the connected provider and resolves on done", async () => {
     const { client, nodes } = makeClient();
     await client.connect("room1");
     const node = nodes[0];
-    node.emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello" }));
+    // Advertises the model explicitly so it lands in the "exact match" tier
+    // of the selection algorithm and gets forwarded on the request.
+    node.emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello", models: ["m1"] }));
 
     const deltas: string[] = [];
     const promise = client.requestChat("room1", [{ role: "user", content: "hi" }], {
@@ -86,7 +97,7 @@ describe("ConsumerClient", () => {
     const { client, nodes } = makeClient();
     await client.connect("room1");
     const node = nodes[0];
-    node.emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello" }));
+    node.emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello", services: ["chat", "tts", "stt"] }));
 
     const tts = client.requestTts("room1", { text: "hi" });
     await flushMicrotasks();
@@ -114,7 +125,11 @@ describe("ConsumerClient", () => {
     await client.connect("room1");
     nodes[0].emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello" }));
     nodes[0].emit(EVENT_PEER_DISCONNECTED, "other-peer", null);
-    expect(client.status).toEqual({ phase: "connected", providerId: "prov1" });
+    expect(client.status).toEqual({
+      phase: "connected",
+      providerId: "prov1",
+      providers: [{ id: "prov1", models: undefined, services: ["chat"] }],
+    });
   });
 
   it("fails a request when no provider appears in time", async () => {
@@ -139,7 +154,11 @@ describe("ConsumerClient", () => {
     await expect(client.requestChat("room1", [{ role: "user", content: "hi" }])).rejects.toThrow();
 
     nodes[0].emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello" }));
-    expect(client.status).toEqual({ phase: "connected", providerId: "prov1" });
+    expect(client.status).toEqual({
+      phase: "connected",
+      providerId: "prov1",
+      providers: [{ id: "prov1", models: undefined, services: ["chat"] }],
+    });
 
     const promise = client.requestChat("room1", [{ role: "user", content: "hi" }]);
     await flushMicrotasks();
@@ -197,7 +216,11 @@ describe("ConsumerClient", () => {
     const { client, nodes } = makeClient();
     await client.connect("room1");
     const node = nodes[0];
-    node.emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello" }));
+    node.emit(
+      EVENT_RAW,
+      "prov1",
+      encode({ v: 1, type: "provider_hello", services: ["chat", "stt"], models: ["whisper-1"] }),
+    );
 
     const promise = client.requestStt("room1", {
       audio: new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" }),
@@ -228,7 +251,11 @@ describe("ConsumerClient", () => {
     const { client, nodes } = makeClient();
     await client.connect("room1");
     const node = nodes[0];
-    node.emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello" }));
+    node.emit(
+      EVENT_RAW,
+      "prov1",
+      encode({ v: 1, type: "provider_hello", services: ["chat", "tts"], models: ["tts-1"] }),
+    );
 
     const promise = client.requestTts("room1", { text: "hello", model: "tts-1", voice: "alloy" });
     await flushMicrotasks();

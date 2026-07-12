@@ -24,6 +24,8 @@ export interface ConsumerRequestOptions {
 }
 
 export interface PendingRequest {
+  /** Which provider this request was sent to, so a disconnect can reject just its requests. */
+  providerId: string;
   content: string;
   onDelta?: (delta: string, full: string) => void;
   resolve: (content: string) => void;
@@ -49,6 +51,7 @@ export class ConsumerService {
     const id = randomId();
     return new Promise((resolve, reject) => {
       const entry: PendingRequest = {
+        providerId,
         content: "",
         onDelta,
         resolve,
@@ -67,11 +70,24 @@ export class ConsumerService {
     });
   }
 
-  /** Rejects every in-flight request, e.g. when the serving provider disconnects. */
+  /** Rejects every in-flight request, e.g. when tearing down the whole session. */
   rejectAll(err: Error): void {
     const entries = [...this.pending.values()];
     this.pending.clear();
     for (const entry of entries) {
+      if (entry.timer !== null) clearTimeout(entry.timer);
+      entry.reject(err);
+    }
+  }
+
+  /**
+   * Rejects only the in-flight requests sent to `providerId`, e.g. when that
+   * one provider disconnects — requests to other providers are left intact.
+   */
+  rejectByProvider(providerId: string, err: Error): void {
+    for (const [id, entry] of [...this.pending.entries()]) {
+      if (entry.providerId !== providerId) continue;
+      this.pending.delete(id);
       if (entry.timer !== null) clearTimeout(entry.timer);
       entry.reject(err);
     }
@@ -94,7 +110,7 @@ export class ConsumerService {
       entry.resolve(final);
     } else if (msg.type === "llm_error") {
       this.settle(msg.id, entry);
-      entry.reject(new MistaiError("REMOTE_ERROR", msg.message));
+      entry.reject(new MistaiError("REMOTE_ERROR", msg.message, msg.code !== undefined ? { code: msg.code } : undefined));
     }
   }
 

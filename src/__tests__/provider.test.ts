@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { ProviderService, type ProviderLogEntry } from "../provider.js";
+import { ProviderService, rejectLlmRequest, type ProviderLogEntry } from "../provider.js";
+import { ERROR_CODE_UNSUPPORTED_SERVICE } from "../protocol.js";
 import type { ProtocolMessage } from "../protocol.js";
 
 describe("ProviderService", () => {
@@ -137,5 +138,27 @@ describe("ProviderService", () => {
       });
     }
     expect(service.getLogs().map((entry) => entry.id)).toEqual(["c", "b"]);
+  });
+});
+
+describe("rejectLlmRequest", () => {
+  it("sends a code-carrying llm_error for a request this provider cannot answer", () => {
+    const sent: { toId: string; msg: ProtocolMessage }[] = [];
+    const send = (toId: string, msg: ProtocolMessage) => sent.push({ toId, msg });
+
+    rejectLlmRequest(send, "peerA", "req1");
+
+    expect(sent).toEqual([
+      {
+        toId: "peerA",
+        msg: {
+          v: 1,
+          type: "llm_error",
+          id: "req1",
+          message: "this provider does not support chat",
+          code: ERROR_CODE_UNSUPPORTED_SERVICE,
+        },
+      },
+    ]);
   });
 });

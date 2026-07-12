@@ -6,6 +6,7 @@
 // Ported from tc-translate/src/lib/mistllm/provider.ts (the variant with the
 // richer request log).
 
+import { ERROR_CODE_UNSUPPORTED_SERVICE } from "./protocol.js";
 import type { ChatMessage, ProtocolMessage } from "./protocol.js";
 
 export type LlmCallFn = (
@@ -35,6 +36,24 @@ export interface ProviderLogOptions {
 }
 
 export const DEFAULT_MAX_LOG_ENTRIES = 50;
+
+/**
+ * Sends an `llm_error` with `code: ERROR_CODE_UNSUPPORTED_SERVICE` for an
+ * `llm_request` this peer cannot answer at all (no LLM endpoint configured,
+ * i.e. no ProviderService was even constructed for it). Exported so hosts —
+ * the preact `useNetworkProvider` hook, or an app driving the wire protocol
+ * directly (e.g. tc-note) — can reject chat traffic immediately instead of
+ * silently dropping it.
+ */
+export function rejectLlmRequest(send: SendFn, fromId: string, requestId: string): void {
+  send(fromId, {
+    v: 1,
+    type: "llm_error",
+    id: requestId,
+    message: "this provider does not support chat",
+    code: ERROR_CODE_UNSUPPORTED_SERVICE,
+  });
+}
 
 export class ProviderService {
   private readonly send: SendFn;

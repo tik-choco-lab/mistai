@@ -18,6 +18,7 @@ export {
 export {
   ProviderService,
   DEFAULT_MAX_LOG_ENTRIES,
+  rejectLlmRequest,
   type LlmCallFn,
   type ProviderLogEntry,
   type ProviderLogOptions,
@@ -35,9 +36,11 @@ export {
 export {
   VoiceProviderService,
   MAX_CONCURRENT_STT_STREAMS,
+  rejectVoiceRequest,
   type SynthesizeFn,
   type TranscribeFn,
   type VoiceProviderOptions,
+  type VoiceServiceKind,
 } from "./voice-provider.js";
 
 export * from "./openai.js";
