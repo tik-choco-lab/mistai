@@ -4,16 +4,18 @@ import type { MistNodeLike } from "../node.js";
 import { decode, type ProtocolMessage } from "../protocol.js";
 
 export class FakeMistNode implements MistNodeLike {
-  handler: ((eventType: number, fromId: string, payload: unknown) => void) | null = null;
+  handler: ((eventType: number, fromId: string, payload: unknown, roomId?: string) => void) | null = null;
   joinedRooms: string[] = [];
   leaveCount = 0;
+  /** Every `roomId` (or `undefined` for an argless call) passed to leaveRoom(), in call order. */
+  leftRooms: (string | undefined)[] = [];
   sent: { toId: string | null | undefined; payload: Uint8Array; delivery?: number }[] = [];
 
   constructor(public readonly nodeId: string) {}
 
   async init(): Promise<void> {}
 
-  onEvent(handler: (eventType: number, fromId: string, payload: unknown) => void): void {
+  onEvent(handler: (eventType: number, fromId: string, payload: unknown, roomId?: string) => void): void {
     this.handler = handler;
   }
 
@@ -21,17 +23,23 @@ export class FakeMistNode implements MistNodeLike {
     this.joinedRooms.push(roomId);
   }
 
-  leaveRoom(): void {
+  leaveRoom(roomId?: string): void {
     this.leaveCount += 1;
+    this.leftRooms.push(roomId);
   }
 
   sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: number): void {
     this.sent.push({ toId, payload, delivery });
   }
 
-  /** Simulates the wrapper dispatching an event to the registered handler. */
-  emit(eventType: number, fromId: string, payload: unknown): void {
-    this.handler?.(eventType, fromId, payload);
+  /**
+   * Simulates the wrapper dispatching an event to the registered handler.
+   * `roomId` is optional, matching real multi-room-capable wrappers (see
+   * MistNodeLike.onEvent in ../node.ts) — omit it to simulate a room-less
+   * event (delivered to every handle by shared-node's dispatch filter).
+   */
+  emit(eventType: number, fromId: string, payload: unknown, roomId?: string): void {
+    this.handler?.(eventType, fromId, payload, roomId);
   }
 
   /** Decoded view of everything sent through this node. */

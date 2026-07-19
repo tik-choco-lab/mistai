@@ -19,9 +19,20 @@ export const DELIVERY_RELIABLE = 0;
 /** Structural interface for the vendored mistlib `MistNode` (or any compatible transport). */
 export interface MistNodeLike {
   init(): Promise<void>;
-  onEvent(handler: (eventType: number, fromId: string, payload: unknown) => void): void;
+  /**
+   * `roomId` is an optional 4th arg for multi-room-capable nodes (e.g. the
+   * shared-node facade in ./shared-node.ts) to tag which room an event
+   * happened in; single-room callers (like `Network` below) can ignore it.
+   */
+  onEvent(handler: (eventType: number, fromId: string, payload: unknown, roomId?: string) => void): void;
   joinRoom(roomId: string): void;
-  leaveRoom(): void;
+  /**
+   * Leaves a room. `roomId` is optional so single-room implementations (the
+   * original shape of this interface) still satisfy it structurally; a
+   * multi-room-capable node should treat an explicit `roomId` as "leave only
+   * that room" and no-arg as "leave everything this handle joined".
+   */
+  leaveRoom(roomId?: string): void;
   sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: number): void;
 }
 

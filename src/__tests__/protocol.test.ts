@@ -253,3 +253,103 @@ describe("protocol encode/decode", () => {
     expect(decode(JSON.stringify({ v: 1, type: "voice_error", id: "", message: "x" }))).toBeNull();
   });
 });
+
+describe("oai_* tunnel protocol extension", () => {
+  it("round-trips a bare oai_request (no seq-0 metadata)", () => {
+    const msg = { v: 1 as const, type: "oai_request" as const, id: "r1", seq: 1, last: false, data: "QUJD" };
+    expect(decode(encode(msg))).toEqual(msg);
+  });
+
+  it("round-trips an oai_request with seq-0 metadata", () => {
+    const msg = {
+      v: 1 as const,
+      type: "oai_request" as const,
+      id: "r1",
+      seq: 0,
+      last: true,
+      data: "QUJD",
+      path: "/chat/completions",
+      method: "POST",
+      contentType: "application/json",
+    };
+    expect(decode(encode(msg))).toEqual(msg);
+  });
+
+  it("rejects oai_request with missing id", () => {
+    expect(decode(JSON.stringify({ v: 1, type: "oai_request", seq: 0, last: true, data: "" }))).toBeNull();
+  });
+
+  it("rejects oai_request with a negative seq", () => {
+    expect(
+      decode(JSON.stringify({ v: 1, type: "oai_request", id: "r1", seq: -1, last: true, data: "" })),
+    ).toBeNull();
+  });
+
+  it("rejects oai_request with non-string data", () => {
+    expect(decode(JSON.stringify({ v: 1, type: "oai_request", id: "r1", seq: 0, last: true, data: 5 }))).toBeNull();
+  });
+
+  it("rejects oai_request with non-boolean last", () => {
+    expect(
+      decode(JSON.stringify({ v: 1, type: "oai_request", id: "r1", seq: 0, last: "yes", data: "" })),
+    ).toBeNull();
+  });
+
+  it("rejects oai_request with a non-string path/method/contentType", () => {
+    expect(
+      decode(JSON.stringify({ v: 1, type: "oai_request", id: "r1", seq: 0, last: true, data: "", path: 5 })),
+    ).toBeNull();
+    expect(
+      decode(JSON.stringify({ v: 1, type: "oai_request", id: "r1", seq: 0, last: true, data: "", method: 5 })),
+    ).toBeNull();
+    expect(
+      decode(JSON.stringify({ v: 1, type: "oai_request", id: "r1", seq: 0, last: true, data: "", contentType: 5 })),
+    ).toBeNull();
+  });
+
+  it("round-trips an oai_response with seq-0 metadata", () => {
+    const msg = {
+      v: 1 as const,
+      type: "oai_response" as const,
+      id: "r1",
+      seq: 0,
+      last: true,
+      data: "QUJD",
+      status: 200,
+      contentType: "application/json",
+    };
+    expect(decode(encode(msg))).toEqual(msg);
+  });
+
+  it("rejects oai_response with a non-number status", () => {
+    expect(
+      decode(JSON.stringify({ v: 1, type: "oai_response", id: "r1", seq: 0, last: true, data: "", status: "200" })),
+    ).toBeNull();
+  });
+
+  it("round-trips an oai_error with and without code", () => {
+    expect(decode(encode({ v: 1, type: "oai_error", id: "r1", message: "boom" }))).toEqual({
+      v: 1,
+      type: "oai_error",
+      id: "r1",
+      message: "boom",
+    });
+    expect(decode(encode({ v: 1, type: "oai_error", id: "r1", message: "boom", code: "unsupported_path" }))).toEqual({
+      v: 1,
+      type: "oai_error",
+      id: "r1",
+      message: "boom",
+      code: "unsupported_path",
+    });
+  });
+
+  it("rejects oai_error with missing message", () => {
+    expect(decode(JSON.stringify({ v: 1, type: "oai_error", id: "r1" }))).toBeNull();
+  });
+
+  it("strips unknown fields from oai_request just like every other known type", () => {
+    expect(
+      decode(JSON.stringify({ v: 1, type: "oai_request", id: "r1", seq: 0, last: true, data: "", evil: "field" })),
+    ).toEqual({ v: 1, type: "oai_request", id: "r1", seq: 0, last: true, data: "" });
+  });
+});
