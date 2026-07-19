@@ -54,7 +54,10 @@ export interface LlmErrorMsg {
  * The wire field stays `string[]` so future service names pass through;
  * consumers should match against these known names and ignore the rest.
  */
-export type KnownService = "chat" | "tts" | "stt" | "embedding";
+export type KnownService = "chat" | "tts" | "stt" | "embedding" | "oai";
+
+/** provider_hello.services marker: this peer will tunnel OpenAI-compatible HTTP requests (see oai_* below). */
+export const OAI_TUNNEL_SERVICE = "oai";
 
 /**
  * What a `provider_hello` without `services` means: peers predating the
@@ -154,6 +157,55 @@ export interface VoiceErrorMsg {
   code?: string;
 }
 
+// Tunnels an OpenAI-compatible HTTP request/response pair over a mist room:
+// a consumer sends path+method+body, a provider peer forwards it to its own
+// upstream (with its own API key, never the consumer's) and relays the
+// response back. Bodies are carried as base64 chunks so anything survives
+// the JSON wire envelope; request/response metadata (path, method, status,
+// contentType) rides on the seq 0 chunk only, mirroring stt_request's
+// `model`/`fileName` convention above. See ./tunnel.ts for the client/
+// provider logic built on this wire shape.
+//
+// Ported from tc-translate/src/lib/p2p/protocol.ts, where it was an
+// app-level extension decoded by a separate decodeExtended(); now native so
+// every consumer of this library's decode() understands it for free.
+export interface OaiRequestMsg {
+  v: 1;
+  type: "oai_request";
+  id: string;
+  seq: number;
+  last: boolean;
+  /** Base64 chunk of the UTF-8 request body; may be '' for an empty/no body. */
+  data: string;
+  // The following ride on seq 0 only.
+  path?: string;
+  method?: string;
+  contentType?: string;
+}
+
+export interface OaiResponseMsg {
+  v: 1;
+  type: "oai_response";
+  id: string;
+  seq: number;
+  last: boolean;
+  /** Base64 chunk of the UTF-8 response body; may be '' for an empty body. */
+  data: string;
+  // The following ride on seq 0 only.
+  status?: number;
+  contentType?: string;
+}
+
+/** Correlates to the request `id`; sent instead of any oai_response chunks. */
+export interface OaiErrorMsg {
+  v: 1;
+  type: "oai_error";
+  id: string;
+  message: string;
+  /** Optional machine-readable reason, e.g. "unsupported_path" | "request_rejected" | "request_too_large". */
+  code?: string;
+}
+
 export type ProtocolMessage =
   | LlmRequestMsg
   | LlmResponseChunkMsg
@@ -166,7 +218,10 @@ export type ProtocolMessage =
   | TtsResponseMsg
   | SttRequestMsg
   | SttResponseMsg
-  | VoiceErrorMsg;
+  | VoiceErrorMsg
+  | OaiRequestMsg
+  | OaiResponseMsg
+  | OaiErrorMsg;
 
 const MESSAGE_TYPES = new Set([
   "llm_request",
@@ -181,6 +236,9 @@ const MESSAGE_TYPES = new Set([
   "stt_request",
   "stt_response",
   "voice_error",
+  "oai_request",
+  "oai_response",
+  "oai_error",
 ]);
 
 const ROLES = new Set(["system", "user", "assistant"]);
@@ -333,6 +391,42 @@ export function decode(data: Uint8Array | string): ProtocolMessage | null {
       if (!isNonEmptyString(m.id)) return null;
       if (typeof m.message !== "string") return null;
       const err: VoiceErrorMsg = { v: 1, type: "voice_error", id: m.id, message: m.message };
+      return typeof m.code === "string" ? { ...err, code: m.code } : err;
+    }
+    case "oai_request": {
+      if (!isNonEmptyString(m.id)) return null;
+      if (!isValidSeq(m.seq)) return null;
+      if (typeof m.data !== "string") return null;
+      if (typeof m.last !== "boolean") return null;
+      if (m.path !== undefined && typeof m.path !== "string") return null;
+      if (m.method !== undefined && typeof m.method !== "string") return null;
+      if (m.contentType !== undefined && typeof m.contentType !== "string") return null;
+      const req: OaiRequestMsg = { v: 1, type: "oai_request", id: m.id, seq: m.seq, last: m.last, data: m.data };
+      return {
+        ...req,
+        ...(m.path !== undefined ? { path: m.path as string } : {}),
+        ...(m.method !== undefined ? { method: m.method as string } : {}),
+        ...(m.contentType !== undefined ? { contentType: m.contentType as string } : {}),
+      };
+    }
+    case "oai_response": {
+      if (!isNonEmptyString(m.id)) return null;
+      if (!isValidSeq(m.seq)) return null;
+      if (typeof m.data !== "string") return null;
+      if (typeof m.last !== "boolean") return null;
+      if (m.status !== undefined && typeof m.status !== "number") return null;
+      if (m.contentType !== undefined && typeof m.contentType !== "string") return null;
+      const res: OaiResponseMsg = { v: 1, type: "oai_response", id: m.id, seq: m.seq, last: m.last, data: m.data };
+      return {
+        ...res,
+        ...(m.status !== undefined ? { status: m.status as number } : {}),
+        ...(m.contentType !== undefined ? { contentType: m.contentType as string } : {}),
+      };
+    }
+    case "oai_error": {
+      if (!isNonEmptyString(m.id)) return null;
+      if (typeof m.message !== "string") return null;
+      const err: OaiErrorMsg = { v: 1, type: "oai_error", id: m.id, message: m.message };
       return typeof m.code === "string" ? { ...err, code: m.code } : err;
     }
     default:

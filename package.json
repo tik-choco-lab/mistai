@@ -1,6 +1,6 @@
 {
   "name": "@tik-choco/mistai",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": false,
   "description": "Shared LLM Network library: wire protocol, consumer/provider services, voice (TTS/STT), OpenAI-compatible upstream client, and preact hooks.",
   "type": "module",
@@ -23,6 +23,10 @@
     "./preact": {
       "types": "./dist/preact/index.d.ts",
       "default": "./dist/preact/index.js"
+    },
+    "./llm-config": {
+      "types": "./dist/llm-config.d.ts",
+      "default": "./dist/llm-config.js"
     },
     "./ui.css": "./dist/preact/ui.css"
   },

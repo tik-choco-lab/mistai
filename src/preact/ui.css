@@ -236,3 +236,532 @@
   color: #b45309;
   font-weight: 700;
 }
+
+/* ============================================================
+ * Settings UI (@tik-choco/mistai/preact settings.tsx)
+ * ------------------------------------------------------------
+ * Ported from tc-translate's src/styles/settings-llm.css +
+ * network-status.css (settings-role-* rules), rewritten to use only
+ * --mistai-* custom properties (with light-theme fallbacks) instead of the
+ * app's own design tokens. Apps that already theme the status-panel rules
+ * above by mapping their own variables onto --mistai-border/-surface/-text/
+ * -text-muted/-text-strong get most of this section themed for free; the
+ * additional variables below (surface-2/3, primary, danger, radius, shadow,
+ * duration/easing) fall back to a neutral light palette when unmapped.
+ * All new class names are `mistai-` prefixed to avoid colliding with an
+ * app's own CSS.
+ * ============================================================ */
+
+.mistai-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mistai-settings-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--mistai-border, #d6dee8);
+  margin-bottom: 4px;
+}
+
+.mistai-settings-tab {
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease), border-color var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease);
+}
+
+.mistai-settings-tab:hover {
+  color: var(--mistai-text, #1f2937);
+}
+
+.mistai-settings-tab.active {
+  color: var(--mistai-primary, #0f766e);
+  border-bottom-color: var(--mistai-primary, #0f766e);
+}
+
+.mistai-settings-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 接続先（Provider）とモデル（Preset）は互いに独立したグリッドカード一覧。 */
+.mistai-server-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mistai-server-list-header label {
+  margin-bottom: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mistai-text-muted, #64748b);
+}
+
+.mistai-flat-section {
+  margin-bottom: 16px;
+}
+
+.mistai-model-row-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mistai-model-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 26px 10px 10px;
+  border-radius: var(--mistai-radius-s, 8px);
+  border: 1px solid var(--mistai-border, #d6dee8);
+  background: var(--mistai-surface, #ffffff);
+  box-shadow: var(--mistai-shadow-1, 0 1px 2px rgba(15, 23, 42, 0.06));
+  transition: background var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease), box-shadow var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease),
+    transform var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease), border-color var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease);
+}
+
+.mistai-model-row:hover {
+  background: var(--mistai-surface-2, #f1f5f9);
+  box-shadow: var(--mistai-shadow-2, 0 4px 10px rgba(15, 23, 42, 0.08));
+  transform: translateY(-1px);
+}
+
+.mistai-flat-section-connection .mistai-model-row {
+  background: var(--mistai-primary-soft, #ecfdf9);
+}
+
+.mistai-flat-section-models .mistai-model-row {
+  background: var(--mistai-surface-3, #e7ecf2);
+}
+
+.mistai-model-row-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.mistai-model-row-label {
+  max-width: 100%;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--mistai-text, #1f2937);
+}
+
+.mistai-model-row-model {
+  max-width: 100%;
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mistai-model-row-provider {
+  max-width: 100%;
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 0.68rem;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mistai-model-row-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mistai-task-badge {
+  background: var(--mistai-primary-soft, #ecfdf9);
+  color: var(--mistai-primary, #0f766e);
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--mistai-radius-pill, 999px);
+  white-space: nowrap;
+}
+
+.mistai-model-row-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  flex-shrink: 0;
+}
+
+.mistai-model-row.mistai-model-row-editing {
+  grid-column: 1 / -1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  background: var(--mistai-surface-2, #f1f5f9);
+  border: 1px solid var(--mistai-border, #d6dee8);
+  padding: 10px;
+  box-shadow: none;
+  transform: none;
+}
+
+.mistai-model-row-edit-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mistai-model-row-edit-fields input,
+.mistai-model-row-edit-fields select {
+  width: 100%;
+}
+
+.mistai-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--mistai-text-muted, #64748b);
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.mistai-chip-remove:hover {
+  color: var(--mistai-danger, #dc2626);
+  background: var(--mistai-danger-soft, #fee2e2);
+}
+
+.mistai-connection-form-model-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mistai-connection-form-model-field select,
+.mistai-connection-form-model-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mistai-model-row-add-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mistai-grid-add-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 64px;
+  border: 1px dashed var(--mistai-border-strong, #94a3b8);
+  border-radius: var(--mistai-radius-s, 8px);
+  background: none;
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease);
+}
+
+.mistai-grid-add-tile:hover {
+  border-color: var(--mistai-primary, #0f766e);
+  color: var(--mistai-primary, #0f766e);
+  background: var(--mistai-primary-soft, #ecfdf9);
+}
+
+.mistai-grid-add-tile:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mistai-connection-form-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--mistai-border, #d6dee8);
+  border: 1px solid var(--mistai-border, #d6dee8);
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease);
+  flex: 1 1 auto;
+  white-space: nowrap;
+}
+
+.mistai-connection-form-btn:hover {
+  color: var(--mistai-text, #1f2937);
+  background: var(--mistai-surface-2, #f1f5f9);
+}
+
+.mistai-connection-form-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mistai-connection-form-btn-primary {
+  background: var(--mistai-primary, #0f766e);
+  border-color: var(--mistai-primary, #0f766e);
+  color: var(--mistai-on-primary, #ffffff);
+}
+
+.mistai-connection-form-btn-primary:hover {
+  background: var(--mistai-primary-hover, #0d5f58);
+  color: var(--mistai-on-primary, #ffffff);
+}
+
+.mistai-connection-form-warning {
+  font-style: italic;
+  margin-top: -6px;
+}
+
+/* AI Networkルーム由来のカードを、自分で設定したものと区別するための強調。 */
+.mistai-flat-section .mistai-model-row.mistai-model-row-network {
+  border: 1px dashed var(--mistai-primary, #0f766e);
+  background: var(--mistai-primary-soft, #ecfdf9);
+}
+
+.mistai-room-id-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.mistai-room-id-row span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mistai-text-muted, #64748b);
+}
+
+.mistai-role-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mistai-role-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--mistai-border, #d6dee8);
+  border-radius: 8px;
+  background: var(--mistai-surface, #ffffff);
+}
+
+.mistai-role-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.mistai-role-head input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.mistai-role-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mistai-text-strong, #0f172a);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mistai-role-desc {
+  margin: 0;
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.mistai-role-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--mistai-border, #d6dee8);
+}
+
+.mistai-share-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mistai-share-section > label {
+  margin-bottom: 0;
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mistai-share-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.mistai-share-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 1px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--mistai-border, #d6dee8);
+  border-radius: var(--mistai-radius-s, 8px);
+  background: var(--mistai-surface, #ffffff);
+  cursor: pointer;
+  transition: background var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease), border-color var(--mistai-dur-fast, 0.15s) var(--mistai-ease, ease);
+}
+
+.mistai-share-item:hover {
+  background: var(--mistai-surface-2, #f1f5f9);
+}
+
+.mistai-share-item:has(input:checked) {
+  background: var(--mistai-primary-soft, #ecfdf9);
+  border-color: var(--mistai-primary, #0f766e);
+}
+
+.mistai-share-item input[type="checkbox"] {
+  grid-row: 1 / 3;
+  margin: 0;
+}
+
+.mistai-share-item-label {
+  min-width: 0;
+  color: var(--mistai-text, #1f2937);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mistai-share-item-model {
+  min-width: 0;
+  color: var(--mistai-text-muted, #64748b);
+  font-size: 0.72rem;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* タスク別モデル割り当て（既定/各タスク/TTS/STT/マイク）の1行。 */
+.mistai-task-model-item {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--mistai-border, #d6dee8);
+}
+
+.mistai-task-model-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.mistai-task-model-item > span {
+  font-size: 0.7rem;
+  color: var(--mistai-text-muted, #64748b);
+  min-width: 0;
+  padding-top: 8px;
+}
+
+/* タスク行ラベルのhoverツールチップ。標準表示のヒント段落の代わりに、
+ * data-tip属性の説明文をラベル直下に表示する。 */
+.mistai-task-model-item > span[data-tip] {
+  position: relative;
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.mistai-task-model-item > span[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 8px;
+  border: 1px solid var(--mistai-border, #d6dee8);
+  border-radius: var(--mistai-radius-s, 8px);
+  background: var(--mistai-surface-3, #e7ecf2);
+  color: var(--mistai-text, #1f2937);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  box-shadow: var(--mistai-shadow-2, 0 4px 10px rgba(15, 23, 42, 0.08));
+}
+
+.mistai-task-model-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mistai-task-model-field {
+  display: block;
+  min-width: 0;
+}
+
+.mistai-task-model-field select {
+  width: 100%;
+  min-width: 0;
+}
+
+.mistai-error-text {
+  margin: 0 0 8px;
+  color: var(--mistai-danger, #dc2626);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
