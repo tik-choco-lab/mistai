@@ -12,7 +12,8 @@ export const VOICE_CHUNK_SIZE = 12 * 1024; // base64 chars per wire message
 
 const B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-function bytesToBase64(bytes: Uint8Array): string {
+/** Encodes raw bytes to standard base64 (with padding), independent of Blob/atob/btoa. */
+export function bytesToBase64(bytes: Uint8Array): string {
   let out = "";
   for (let i = 0; i < bytes.length; i += 3) {
     const b0 = bytes[i];
@@ -26,16 +27,36 @@ function bytesToBase64(bytes: Uint8Array): string {
   return out;
 }
 
+/**
+ * Decodes standard base64 (as produced by {@link bytesToBase64}/btoa) back to
+ * raw bytes. Return type is pinned to the ArrayBuffer-backed Uint8Array
+ * overload (not the default `ArrayBufferLike`-backed one) so callers can pass
+ * the result directly to APIs like `BlobPart` without a widening error.
+ */
+export function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/** Encodes a UTF-8 string to base64. Ported from the oai tunnel's local helpers (tc-translate). */
+export function utf8ToBase64(text: string): string {
+  return bytesToBase64(new TextEncoder().encode(text));
+}
+
+/** Decodes a base64 string produced by {@link utf8ToBase64} back to UTF-8 text. */
+export function base64ToUtf8(base64: string): string {
+  return new TextDecoder().decode(base64ToBytes(base64));
+}
+
 export async function blobToBase64(blob: Blob): Promise<string> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   return bytesToBase64(bytes);
 }
 
 export function base64ToBlob(base64: string, mime: string): Blob {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
+  return new Blob([base64ToBytes(base64)], { type: mime });
 }
 
 export function chunkBase64(base64: string, size = VOICE_CHUNK_SIZE): string[] {

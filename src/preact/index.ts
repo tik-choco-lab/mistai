@@ -16,12 +16,19 @@ export {
   type ProviderPeerInfo,
 } from "./ui.js";
 
+// Shared 3-tab LLM settings UI (AI Connection / AI Network / Tasks) — apps
+// supply task definitions + small adapters and get the family-common
+// settings screens; the shared llm config itself is managed internally via
+// "../llm-config.js".
+export * from "./settings.js";
+
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ConsumerClient, type ConsumerStatus } from "../client.js";
 import { Network, type MistNodeLike } from "../node.js";
 import { ProviderService, rejectLlmRequest, type LlmCallFn, type ProviderLogEntry, type SendFn } from "../provider.js";
 import { VoiceProviderService, rejectVoiceRequest, type SynthesizeFn, type TranscribeFn } from "../voice-provider.js";
-import type { ProtocolMessage, ProviderHelloMsg } from "../protocol.js";
+import { OAI_TUNNEL_SERVICE, type ProtocolMessage, type ProviderHelloMsg } from "../protocol.js";
+import { OaiTunnelProvider, type OaiUpstreamResolver } from "../tunnel.js";
 import { MistaiError } from "../errors.js";
 
 /** Tracks the consumer-side LLM Network connection lifecycle for display in the UI. */
@@ -101,6 +108,23 @@ export interface UseNetworkProviderOptions {
   advertisedModels?: string[];
   /** Max retained request-log entries. Defaults to 50. */
   maxLogEntries?: number;
+  /**
+   * Extra service names appended to provider_hello.services alongside the
+   * ones derived from callLlm/synthesize/transcribe (e.g. an app-defined
+   * capability marker). `'oai'` is added automatically when
+   * `resolveOaiUpstream` is provided — no need to list it here too.
+   */
+  extraServices?: string[];
+  /**
+   * When provided, this provider also tunnels OpenAI-compatible HTTP
+   * requests (oai_request/oai_response/oai_error — see ../tunnel.js):
+   * `'oai'` is added to the advertised services automatically, and an
+   * `OaiTunnelProvider` wired to `resolveOaiUpstream` is consulted first on
+   * every incoming message. See `OaiUpstreamResolver` for the allowlist/
+   * rejection contract (throwing or returning null rejects the request
+   * instead of forwarding it upstream).
+   */
+  resolveOaiUpstream?: OaiUpstreamResolver;
 }
 
 export interface UseNetworkProviderResult {
@@ -209,11 +233,28 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
   const networkRef = useRef<Network | null>(null);
   const providerServiceRef = useRef<ProviderService | null>(null);
   const voiceProviderServiceRef = useRef<VoiceProviderService | null>(null);
+  const tunnelProviderRef = useRef<OaiTunnelProvider | null>(null);
 
   const enabled = options.enabled;
   const roomId = options.roomId.trim();
 
   const consumerCount = useMemo(() => peers.filter((peer) => peer.isConsumer).length, [peers]);
+
+  // Reads the latest options at send time, so the join broadcast, the
+  // per-peer hellos, and the live re-broadcast effect below all advertise
+  // the same, current capability set.
+  function helloMessage(): ProviderHelloMsg {
+    const opts = optionsRef.current;
+    const services = [...deriveHelloServices(opts), ...(opts.extraServices ?? [])];
+    if (opts.resolveOaiUpstream && !services.includes(OAI_TUNNEL_SERVICE)) services.push(OAI_TUNNEL_SERVICE);
+    const models = opts.advertisedModels;
+    return {
+      v: 1,
+      type: "provider_hello",
+      services,
+      ...(models && models.length > 0 ? { models } : {}),
+    };
+  }
 
   useEffect(() => {
     if (!enabled || !roomId) {
@@ -221,6 +262,7 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
       networkRef.current = null;
       providerServiceRef.current = null;
       voiceProviderServiceRef.current = null;
+      tunnelProviderRef.current = null;
       updateStatus("idle");
       setErrorMessage(null);
       setPeers([]);
@@ -241,18 +283,6 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
       });
     };
 
-    const helloMessage = (): ProviderHelloMsg => {
-      const opts = optionsRef.current;
-      const services = deriveHelloServices(opts);
-      const models = opts.advertisedModels;
-      return {
-        v: 1,
-        type: "provider_hello",
-        services,
-        ...(models && models.length > 0 ? { models } : {}),
-      };
-    };
-
     const sendToNetwork: SendFn = (toId, msg) => network.send(toId, msg);
 
     const network = new Network({
@@ -271,8 +301,15 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
         onPeerDisconnected: (peerId) => {
           setPeers((current) => current.filter((peer) => peer.nodeId !== peerId));
           voiceProviderServiceRef.current?.dropPeer(peerId);
+          tunnelProviderRef.current?.dropPeer(peerId);
         },
         onMessage: (fromId, msg) => {
+          // oai_* tunnel messages (OpenAI-compatible HTTP-over-P2P) are fully
+          // owned by the tunnel provider when one is configured; everything
+          // else below is routed as usual. Consulting it first means a
+          // provider that only sets resolveOaiUpstream never has to touch
+          // routeProviderRequest at all.
+          if (tunnelProviderRef.current?.handleMessage(fromId, msg)) return;
           if (msg.type === "consumer_hello") {
             setPeers((current) => {
               const existing = current.find((peer) => peer.nodeId === fromId);
@@ -324,9 +361,13 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
         )
       : null;
 
+    const resolveOaiUpstream = optionsRef.current.resolveOaiUpstream;
+    const tunnelProvider = resolveOaiUpstream ? new OaiTunnelProvider(sendToNetwork, resolveOaiUpstream) : null;
+
     networkRef.current = network;
     providerServiceRef.current = providerService;
     voiceProviderServiceRef.current = voiceProviderService;
+    tunnelProviderRef.current = tunnelProvider;
     setOwnNodeId(network.id);
 
     network
@@ -349,8 +390,29 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
       if (networkRef.current === network) networkRef.current = null;
       if (providerServiceRef.current === providerService) providerServiceRef.current = null;
       if (voiceProviderServiceRef.current === voiceProviderService) voiceProviderServiceRef.current = null;
+      if (tunnelProviderRef.current === tunnelProvider) tunnelProviderRef.current = null;
     };
   }, [enabled, roomId]);
+
+  // Re-broadcast provider_hello, without leaving the room, whenever what it
+  // would announce (services + extraServices + oai + advertised models)
+  // changes on a live session. The join effect above only sends hello on
+  // join / peer-connect / consumer_hello, so a share-list edit made while
+  // already connected would otherwise either never reach existing consumers,
+  // or require a disruptive leave/rejoin (dropping in-flight requests) to
+  // propagate. Consumers apply provider_hello updates mid-session (see
+  // ConsumerClient's onMessage -> emitTableStatus), so the re-broadcast alone
+  // is enough to close the loop. Joining/connecting sessions are skipped:
+  // their own join broadcast reads the latest options from the ref anyway.
+  const oaiService = options.resolveOaiUpstream ? OAI_TUNNEL_SERVICE : "";
+  const helloKey = `${deriveHelloServices(options).join(",")}|${(options.extraServices ?? []).join(",")}|${oaiService}|${(options.advertisedModels ?? []).join("\n")}`;
+  const helloKeyRef = useRef(helloKey);
+  useEffect(() => {
+    if (helloKeyRef.current === helloKey) return;
+    helloKeyRef.current = helloKey;
+    if (status !== "connected") return;
+    networkRef.current?.send(null, helloMessage());
+  }, [helloKey, status]);
 
   return {
     status,

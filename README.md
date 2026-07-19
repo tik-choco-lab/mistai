@@ -49,12 +49,79 @@ upstream client, and preact hooks.
 | `stt_request` | consumer → provider | `id`, `seq`, `data`, `last`, `mime`; `model` / `fileName` ride on seq 0 |
 | `stt_response` | provider → consumer | `id`, `text` |
 | `voice_error` | provider → consumer | `id`, `message` (shared error for tts/stt) |
+| `oai_request` | consumer → provider | `id`, `seq`, `last`, `data` (base64 chunk); `path`/`method`/`contentType` ride on seq 0 |
+| `oai_response` | provider → consumer | `id`, `seq`, `last`, `data`; `status`/`contentType` ride on seq 0 |
+| `oai_error` | provider → consumer | `id`, `message`, optional `code` (`unsupported_path` / `request_rejected` / `request_too_large`) |
 
 `decode()` trusts nothing: malformed messages return `null` (unknown fields are
 stripped, `seq` must be an integer ≥ 0, `id` must be a non-empty string, and so
 on). `provider_hello.models` is dropped as a field when it is not an array, and
 non-string elements are filtered when it is — so the optional extension can
 never break provider discovery itself.
+
+### OAI tunnel (OpenAI-compatible HTTP over P2P)
+
+`OaiTunnelClient` / `OaiTunnelProvider` (see `tunnel.ts`) proxy an arbitrary
+OpenAI-compatible HTTP endpoint (`/chat/completions`, `/models`,
+`/embeddings`, …) through a mist room, on top of the native `oai_*` messages
+above — no separate codec needed, `Network`'s own `decode()` already
+understands them. Why: it lets a consumer use *any* upstream feature (e.g.
+vision/image inputs) that the request/response-shaped `llm_request` protocol
+doesn't model, by tunneling the raw HTTP call instead of adding
+feature-specific wire messages for each one.
+
+- Bodies travel as 12 KB base64 chunks (mist's ~16 KB per-message safety
+  margin), reassembled up to a 24 MB cap; requests time out after 120 s by
+  default. A provider announces tunnel support by adding `'oai'`
+  (`OAI_TUNNEL_SERVICE`) to `provider_hello.services`.
+- **The consumer's credentials never touch the wire.** `oai_request` has no
+  auth field by design — the provider always forwards to its own upstream
+  with its own `OaiUpstream.apiKey`; a consumer can only reach whatever
+  upstream(s) the provider's `OaiUpstreamResolver` chooses to expose.
+- The resolver is the provider's policy boundary: return `null` to refuse a
+  path outright (`unsupported_path`), or throw to refuse for a
+  request-specific reason, e.g. an unshared model (`request_rejected`) — the
+  thrown message is relayed to the consumer as-is.
+- v1 has no streaming: the provider must resolve to a non-streaming upstream
+  call (e.g. via `OaiUpstream.rewriteBody` forcing `stream: false`) and relay
+  the full response in one shot. `/audio/*` is intentionally out of scope —
+  that's what `tts_request`/`stt_request` are for.
+
+```ts
+import { OaiTunnelClient, OaiTunnelProvider } from '@tik-choco/mistai'
+
+const tunnel = new OaiTunnelClient({ createNode, nodeIdStorageKey: 'my-app:node-id' })
+const res = await tunnel.request(roomId, { path: '/chat/completions', body: JSON.stringify(payload) })
+
+// Provider side: usually just pass resolveOaiUpstream to useNetworkProvider (below)
+// instead of constructing OaiTunnelProvider directly.
+```
+
+### Shared MistNode facade (one node per page)
+
+`createSharedNodeScope(createRealNode)` (see `shared-node.ts`) generalizes the
+"one active MistNode per page" constraint some mistlib wasm wrappers enforce.
+An app that runs more than one network stack at once — e.g. a `ConsumerClient`
+*and* a `useNetworkProvider` *and* an `OaiTunnelClient` — would otherwise hit
+each stack trying to construct its own real node. A shared scope instead hands
+out lightweight handles that multiplex onto one real node: events fan out to
+every handle (filtered by the rooms *that handle* joined), and room departure
+is reference-counted across handles so one stack disconnecting doesn't evict a
+room-mate. The one real consequence: every handle sharing a scope is one peer
+on the wire, so a page's own provider can't be "discovered" by that same
+page's consumer if they share a scope (mist doesn't loop broadcasts back to
+the sender) — a degenerate case with no practical loss.
+
+```ts
+import { createSharedNodeScope } from '@tik-choco/mistai'
+import { MistNode } from '../vendor/mistlib/wrappers/web/index.js'
+
+// Once per page, reused as `createNode` by every stack that should share an identity:
+export const createSharedMistNode = createSharedNodeScope((nodeId) => new MistNode(nodeId))
+```
+
+Apps with only one network stack alive at a time don't need this — pass the
+raw `(id) => new MistNode(id)` factory directly, as in the examples below.
 
 ### Transport injection
 
@@ -74,9 +141,12 @@ transport that doesn't involve mist at all (see pattern B below).
 
 The mistlib wasm node assumes one node and one room per page. Running the
 consumer and provider on the same page at the same time requires app-side room
-arbitration (something like tc-pdf-viewer's claimRoom/releaseRoom).
-`ConsumerClient` and `useNetworkProvider` each create their own `Network`
-(= node), so concurrent use depends on the app's mistlib wrapper semantics.
+arbitration (something like tc-pdf-viewer's claimRoom/releaseRoom), **or**
+`createSharedNodeScope` (see "Shared MistNode facade" above), which multiplexes
+any number of `Network`-owning stacks onto one real node without app-side
+arbitration. `ConsumerClient` and `useNetworkProvider` each create their own
+`Network` (= node) via the injected `createNode`, so whether that's one real
+node or several depends entirely on what `createNode` returns.
 
 ## API reference (summary)
 
@@ -85,8 +155,9 @@ arbitration (something like tc-pdf-viewer's claimRoom/releaseRoom).
 - **protocol** — `encode(msg)` / `decode(bytes|string)`, every message
   interface, the `ProtocolMessage` union, `ChatMessage`.
 - **base64** — `blobToBase64` / `base64ToBlob` / `chunkBase64` /
-  `VOICE_CHUNK_SIZE` (12 KB). `blobToBase64` does not use FileReader (works in
-  Node too).
+  `VOICE_CHUNK_SIZE` (12 KB), plus the byte/text-level primitives they're built
+  on: `bytesToBase64` / `base64ToBytes` / `utf8ToBase64` / `base64ToUtf8`.
+  `blobToBase64` does not use FileReader (works in Node too).
 - **messages** — `MistaiMessages` catalogs `MESSAGES_EN` / `MESSAGES_JA`
   (canonical status labels + one message per error code) and
   `formatMistaiError(err, messages, fallback?)` /
@@ -121,6 +192,14 @@ arbitration (something like tc-pdf-viewer's claimRoom/releaseRoom).
   (`idle → joining → searching → connected/error`; `connected` carries
   `providerId` and `models?`). Sends `consumer_hello` after joining and upon
   receiving a `provider_hello`.
+- **tunnel** — `OaiTunnelClient({ createNode, nodeIdStorageKey, requestTimeoutMs? })`
+  (`request(roomId, { path, method?, contentType?, body? })` → `{ status, contentType, body }`,
+  `disconnect()`) and `OaiTunnelProvider(send, resolveUpstream)`
+  (`handleMessage(fromId, msg)` returns `true` when it consumed an `oai_*`
+  message, `dropPeer(peerId)`). See "OAI tunnel" above.
+- **shared-node** — `createSharedNodeScope(createRealNode)` → a `createNode`
+  factory that multiplexes every handle it produces onto one real node. See
+  "Shared MistNode facade" above.
 
 ### `@tik-choco/mistai/preact`
 
@@ -128,14 +207,24 @@ arbitration (something like tc-pdf-viewer's claimRoom/releaseRoom).
 - `useConsumerConnection(client, { enabled, roomId, debounceMs? })` —
   side-effect hook: debounced `connect` while enabled, `disconnect` when
   disabled.
-- `useNetworkProvider({ enabled, roomId, createNode, callLlm?, synthesize?, transcribe?, advertisedModels?, ... })`
+- `useNetworkProvider({ enabled, roomId, createNode, callLlm?, synthesize?, transcribe?, advertisedModels?, extraServices?, resolveOaiUpstream?, ... })`
   — manages the provider join/leave lifecycle and returns
   `{ status, statusUpdatedAt, errorMessage, peers, peerCount, consumerCount, logs, ownNodeId, roomId }`.
   Broadcasts `provider_hello` (with `models` when `advertisedModels` is set,
-  and `services` always, derived from which of `callLlm` / `synthesize` /
-  `transcribe` are injected) after joining and to each newly connected peer,
+  and `services` derived from which of `callLlm` / `synthesize` / `transcribe`
+  are injected, plus `extraServices` and — automatically — `'oai'` whenever
+  `resolveOaiUpstream` is set) after joining and to each newly connected peer,
   and marks peers that send `consumer_hello` as consumers. Requests for a
   service that is not injected are rejected with `code: "unsupported_service"`.
+  **Hello re-broadcast**: whenever the advertised set (services/extraServices/
+  oai/advertisedModels) changes while already connected, a fresh
+  `provider_hello` is sent to every peer in place — no leave/rejoin, so
+  in-flight requests survive a live share-list edit. (Consumers already apply
+  `provider_hello` updates mid-session, so this alone closes the loop.)
+  **oai tunnel**: passing `resolveOaiUpstream` wires an internal
+  `OaiTunnelProvider` into the hook's own message routing (consulted before
+  everything else) and drops its per-peer state on disconnect — see "OAI
+  tunnel" above for the resolver contract.
 
 Shared UI components (all take an optional `messages: MistaiMessages`,
 default `MESSAGES_EN`; import the default styles via

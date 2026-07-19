@@ -46,3 +46,19 @@ export {
 export * from "./openai.js";
 export * from "./node.js";
 export * from "./client.js";
+
+export {
+  OaiTunnelClient,
+  OaiTunnelProvider,
+  OAI_CHUNK_SIZE,
+  MAX_OAI_BASE64_CHARS,
+  OAI_REQUEST_TIMEOUT_MS,
+  OAI_PROVIDER_WAIT_TIMEOUT_MS,
+  type OaiTunnelClientOptions,
+  type OaiTunnelRequestInit,
+  type OaiTunnelResponse,
+  type OaiUpstream,
+  type OaiUpstreamResolver,
+} from "./tunnel.js";
+
+export { createSharedNodeScope } from "./shared-node.js";
