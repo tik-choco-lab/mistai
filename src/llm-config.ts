@@ -470,3 +470,95 @@ export function networkVoiceModelParam(model: string): string | undefined {
   const trimmed = model.trim();
   return !trimmed || trimmed === NETWORK_VOICE_AUTO_MODEL ? undefined : trimmed;
 }
+
+export type NetworkMirrorConsolidation = {
+  /** Whether `config` was mutated — callers should persist (and notify) only when true. */
+  changed: boolean;
+  /**
+   * Maps a removed duplicate preset's id to the id of the surviving preset
+   * it was merged into. `config.defaultPresetId` is already repointed
+   * in-place when it named a removed id; a caller-owned reference living
+   * outside `config` (e.g. an app's per-task preset-id override) is not —
+   * that's the caller's job, using this map.
+   */
+  presetIdRemap: Map<string, string>;
+};
+
+/**
+ * Self-heals `config`'s `mist-network://<roomId>` mirror for one room:
+ * collapses any duplicate pseudo-provider rows (same normalized baseUrl,
+ * apiKey `""`) into the first one (oldest, since `providers` is an
+ * append-only array), and any duplicate presets found under them — same
+ * advertised model name (trimmed) + temperature + reasoningEffort — into the
+ * first one seen. Mutates `config` in place.
+ *
+ * Duplicates of this shape are never supposed to happen — `ensureProvider`/
+ * `ensurePreset` above already dedup exactly (baseUrl+apiKey;
+ * providerId+model+temperature+reasoningEffort) and are idempotent for a
+ * single writer — but the shared config is co-owned with no locking
+ * (last-write-wins by `updatedAt`; see this file's header comment): two
+ * same-origin app instances (two tabs, or two apps) both mirroring the same
+ * room can each `loadLlmConfig()` before the other's `saveLlmConfig()` lands
+ * and each create their own row for what should be one entry. The
+ * trimmed-model comparison additionally absorbs a provider that
+ * re-advertises the "same" model with incidental whitespace differences
+ * across reconnects, which would otherwise dedup-key as a distinct model and
+ * never get pruned by an app's mirror-sync hook (whose own no-longer-
+ * advertised prune only compares by exact model string).
+ *
+ * This is the one sanctioned exception to the shared config's "append-only,
+ * never touch another app's entries" convention (see this file's
+ * merge-policy comment): it only ever touches entries a mist-network://
+ * mirror for THIS room would itself have created, collapsing them back to
+ * the shape `ensureProvider`/`ensurePreset` would have produced with no
+ * race — it never removes a real HTTP provider/preset another app added, and
+ * never touches a different room's pseudo-provider.
+ *
+ * Callers (an app's own mirror-sync hook — see e.g. tc-lingo/tc-translate's
+ * `useNetworkModelSync`) should run this on every mirror-sync tick (each
+ * connect/reconnect, not just once behind a migration flag), so duplication
+ * from any cause — including any that predates this function — gets cleaned
+ * up the next time the room is actually joined. An app-local
+ * `taskPresetIds`-style override that named a removed duplicate id is not
+ * repointed here (this module has no notion of such app-specific state) —
+ * the caller should repoint it using the returned `presetIdRemap`.
+ */
+export function consolidateNetworkMirror(config: SharedLlmConfigV1, roomId: string): NetworkMirrorConsolidation {
+  const baseUrl = normalizeBaseUrl(networkProviderBaseUrl(roomId));
+  const matchingProviders = config.providers.filter((p) => p.baseUrl === baseUrl && p.apiKey === "");
+  const presetIdRemap = new Map<string, string>();
+  if (matchingProviders.length === 0) return { changed: false, presetIdRemap };
+
+  const survivor = matchingProviders[0];
+  const matchingProviderIds = new Set(matchingProviders.map((p) => p.id));
+  const extraProviderIds = new Set(matchingProviders.slice(1).map((p) => p.id));
+
+  const keyOf = (p: ModelPresetV1) => `${p.model.trim()} ${p.temperature ?? ""} ${p.reasoningEffort ?? ""}`;
+  const survivorByKey = new Map<string, ModelPresetV1>();
+
+  for (const preset of config.presets) {
+    if (!matchingProviderIds.has(preset.providerId)) continue;
+    const key = keyOf(preset);
+    const existing = survivorByKey.get(key);
+    if (!existing) {
+      survivorByKey.set(key, preset);
+      // Adopt presets already sitting under an extra (soon-to-be-removed)
+      // provider row into the survivor - keeps this preset's own id, so any
+      // external reference to it (defaultPresetId, a per-task override)
+      // stays valid without needing a remap entry.
+      if (preset.providerId !== survivor.id) preset.providerId = survivor.id;
+    } else {
+      presetIdRemap.set(preset.id, existing.id);
+    }
+  }
+
+  if (extraProviderIds.size === 0 && presetIdRemap.size === 0) return { changed: false, presetIdRemap };
+
+  if (presetIdRemap.size > 0) config.presets = config.presets.filter((p) => !presetIdRemap.has(p.id));
+  if (extraProviderIds.size > 0) config.providers = config.providers.filter((p) => !extraProviderIds.has(p.id));
+
+  const remappedDefault = presetIdRemap.get(config.defaultPresetId);
+  if (remappedDefault) config.defaultPresetId = remappedDefault;
+
+  return { changed: true, presetIdRemap };
+}
