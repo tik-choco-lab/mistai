@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { streamChatCompletion, fetchModels } from "../openai.js";
+import { streamChatCompletion, fetchModels, fetchVoices, OPENAI_TTS_VOICES } from "../openai.js";
 
 const config = { baseUrl: "https://api.example.com/v1", apiKey: "sk-test", model: "gpt-4o" };
 const messages = [{ role: "user" as const, content: "hello" }];
@@ -162,5 +162,86 @@ describe("fetchModels", () => {
   it("throws when data array has no valid ids", async () => {
     const fetchFn = vi.fn(async () => jsonResponse({ data: [{ notAnId: 1 }, "garbage"] }));
     await expect(fetchModels(config, fetchFn as unknown as typeof fetch)).rejects.toThrow(/empty or could not be parsed/);
+  });
+});
+
+describe("fetchVoices", () => {
+  it("uses {baseUrl}/audio/voices first, sending the Authorization header when an apiKey is given", async () => {
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe("https://api.example.com/v1/audio/voices");
+      expect(init.method).toBe("GET");
+      const headers = init.headers as Record<string, string>;
+      expect(headers["Authorization"]).toBe("Bearer sk-test");
+      return jsonResponse(["alloy", "verse"]);
+    });
+    const voices = await fetchVoices("https://api.example.com/v1", "sk-test", fetchFn as unknown as typeof fetch);
+    expect(voices).toEqual(["alloy", "verse"]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("strips a trailing slash from baseUrl and omits Authorization when no apiKey is given", async () => {
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      expect(url).toBe("https://api.example.com/v1/audio/voices");
+      expect(init.headers).toEqual({});
+      return jsonResponse(["alloy"]);
+    });
+    const voices = await fetchVoices("https://api.example.com/v1/", undefined, fetchFn as unknown as typeof fetch);
+    expect(voices).toEqual(["alloy"]);
+  });
+
+  it("falls back to {baseUrl}/voices when /audio/voices fails", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.endsWith("/audio/voices")) return new Response("not found", { status: 404 });
+      expect(url).toBe("https://api.example.com/v1/voices");
+      return jsonResponse({ voices: ["kokoro-1", "kokoro-2"] });
+    });
+    const voices = await fetchVoices("https://api.example.com/v1", "sk-test", fetchFn as unknown as typeof fetch);
+    expect(voices).toEqual(["kokoro-1", "kokoro-2"]);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to /voices when /audio/voices returns an empty list", async () => {
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.endsWith("/audio/voices")) return jsonResponse([]);
+      return jsonResponse({ data: [{ id: "v1" }, { name: "v2" }, { voice: "v3" }] });
+    });
+    const voices = await fetchVoices("https://api.example.com/v1", "", fetchFn as unknown as typeof fetch);
+    expect(voices).toEqual(["v1", "v2", "v3"]);
+  });
+
+  it("tolerates a mixed string/object array, dropping unusable entries", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(["alloy", { id: "coral" }, { garbage: true }, 42, null]));
+    const voices = await fetchVoices("https://api.example.com/v1", "", fetchFn as unknown as typeof fetch);
+    expect(voices).toEqual(["alloy", "coral"]);
+  });
+
+  it("resolves to [] (never throws) when both endpoints 404", async () => {
+    const fetchFn = vi.fn(async () => new Response("not found", { status: 404 }));
+    await expect(fetchVoices("https://api.example.com/v1", "sk-test", fetchFn as unknown as typeof fetch)).resolves.toEqual(
+      [],
+    );
+  });
+
+  it("resolves to [] (never throws) when fetch itself rejects", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    await expect(fetchVoices("https://api.example.com/v1", "sk-test", fetchFn as unknown as typeof fetch)).resolves.toEqual(
+      [],
+    );
+  });
+
+  it("resolves to [] (never throws) on malformed JSON", async () => {
+    const fetchFn = vi.fn(
+      async () => new Response("not json", { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    await expect(fetchVoices("https://api.example.com/v1", "sk-test", fetchFn as unknown as typeof fetch)).resolves.toEqual(
+      [],
+    );
+  });
+
+  it("OPENAI_TTS_VOICES is a non-empty static fallback list", () => {
+    expect(OPENAI_TTS_VOICES.length).toBeGreaterThan(0);
+    expect(OPENAI_TTS_VOICES).toContain("alloy");
   });
 });

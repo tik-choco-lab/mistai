@@ -25,7 +25,7 @@
 // custom properties with sensible fallbacks, same convention as ui.tsx.
 
 import { useEffect, useRef, useState } from "preact/hooks";
-import { fetchModels } from "../openai.js";
+import { fetchModels, fetchVoices, OPENAI_TTS_VOICES } from "../openai.js";
 import { MESSAGES_EN, MESSAGES_JA, type MistaiMessages } from "../messages.js";
 import type { ConsumerStatus } from "../client.js";
 import type { ProviderLogEntry } from "../provider.js";
@@ -51,6 +51,7 @@ import {
   type LlmProviderV1,
   type ModelPresetV1,
   type SharedLlmConfigV1,
+  type VoiceConfigV1,
 } from "../llm-config.js";
 
 // ---------------------------------------------------------------------------
@@ -201,6 +202,7 @@ export interface LlmSettingsMessages {
   voiceTtsHeading: string;
   voiceTtsTip: string;
   voiceTtsVoiceLabel: string;
+  voiceProviderDefaultOption: string;
   voiceSttHeading: string;
   voiceSttTip: string;
   voiceModelBrowserOption: string;
@@ -263,6 +265,7 @@ export const LLM_SETTINGS_MESSAGES_EN: LlmSettingsMessages = {
   voiceTtsHeading: "TTS",
   voiceTtsTip: "Model used for text-to-speech.",
   voiceTtsVoiceLabel: "Voice",
+  voiceProviderDefaultOption: "Provider default (not set)",
   voiceSttHeading: "STT",
   voiceSttTip: "Model used for speech-to-text.",
   voiceModelBrowserOption: "Browser default (not set)",
@@ -325,6 +328,7 @@ export const LLM_SETTINGS_MESSAGES_JA: LlmSettingsMessages = {
   voiceTtsHeading: "TTS",
   voiceTtsTip: "音声合成に使うモデルです。",
   voiceTtsVoiceLabel: "ボイス",
+  voiceProviderDefaultOption: "provider既定（未指定）",
   voiceSttHeading: "STT",
   voiceSttTip: "音声認識に使うモデルです。",
   voiceModelBrowserOption: "ブラウザ標準（未設定）",
@@ -1111,11 +1115,114 @@ function ReasoningEffortSelect(props: { value: ReasoningEffort; onChange: (effor
   );
 }
 
+/** Which kind of connection `config.tts`/`config.stt` currently resolves to. */
+export type VoiceEngine = "browser" | "network" | "api";
+
+/**
+ * Pure, testable resolution of the connection `config[kind]` resolves to and
+ * which "engine" that implies — mirrors `resolveVoice` (llm-config.ts)'s own
+ * fallback-to-default-preset's-provider rule, so the row always reflects
+ * what a real request would actually resolve to: `'browser'` when no model
+ * is set at all, `'network'` when the resolved provider is the
+ * `mist-network://` pseudo-provider (covers both a specific advertised
+ * preset and the "AI Networkにおまかせ" auto sentinel), otherwise `'api'`.
+ */
+export function resolveVoiceEngine(
+  config: SharedLlmConfigV1,
+  cfg: VoiceConfigV1 | undefined,
+): { baseUrl: string; apiKey: string; engine: VoiceEngine } {
+  const model = cfg?.model ?? "";
+  const provider = cfg?.providerId
+    ? config.providers.find((entry) => entry.id === cfg.providerId)
+    : config.providers.find((entry) => entry.id === config.presets.find((p) => p.id === config.defaultPresetId)?.providerId);
+  const baseUrl = provider?.baseUrl ?? "";
+  const apiKey = provider?.apiKey ?? "";
+  const engine: VoiceEngine = !model.trim() ? "browser" : isNetworkProviderBaseUrl(baseUrl) ? "network" : "api";
+  return { baseUrl, apiKey, engine };
+}
+
+/**
+ * Whether the TTS voice picker should be shown for a row at all (§2.4 of
+ * tts-voice-selection-v1): only when the app supplies a `voice.tts` adapter
+ * at all, and never for the browser engine (there's no wire-level "voice"
+ * concept there — `SpeechSynthesisUtterance` picks its own). Unlike the
+ * previous behavior, this no longer excludes the `network-auto` ("AI
+ * Networkにおまかせ") case — the model can be left to the room while the
+ * voice is still pinned.
+ */
+export function shouldShowTtsVoiceRow(hasTtsAdapter: boolean, engine: VoiceEngine): boolean {
+  return hasTtsAdapter && engine !== "browser";
+}
+
+/**
+ * Resolves the voice-name choices offered by the TTS picker for the current
+ * engine (§2.4):
+ *  - `network`: the room's advertised union (`consumerStatus.voices`, built
+ *    by `unionVoices` in ../client.ts from every connected TTS provider's
+ *    `provider_hello.voices`). Never falls back to `OPENAI_TTS_VOICES` — a
+ *    name the room doesn't actually support would mislead the user into
+ *    picking it.
+ *  - `api`: a live `fetchVoices()` result if non-empty, else the
+ *    app-supplied adapter list (`voice.tts.voiceOptions`), else
+ *    `OPENAI_TTS_VOICES` as the final UI-only fallback.
+ *  - `browser`: never rendered (see shouldShowTtsVoiceRow), so `[]`.
+ */
+export function resolveTtsVoiceOptions(params: {
+  engine: VoiceEngine;
+  consumerStatus?: ConsumerStatus;
+  fetchedApiVoices: string[];
+  adapterVoiceOptions?: string[];
+}): string[] {
+  if (params.engine === "network") {
+    return params.consumerStatus?.phase === "connected" ? (params.consumerStatus.voices ?? []) : [];
+  }
+  if (params.engine === "api") {
+    if (params.fetchedApiVoices.length > 0) return params.fetchedApiVoices;
+    if (params.adapterVoiceOptions && params.adapterVoiceOptions.length > 0) return params.adapterVoiceOptions;
+    return OPENAI_TTS_VOICES;
+  }
+  return [];
+}
+
+/**
+ * The full ordered list of `<option>` values for the TTS voice `<select>`:
+ * the "provider default" sentinel (`''`, §2.4 — voice omitted, provider
+ * answers with its own configured voice) always first, then the currently
+ * saved voice if `voiceOptions` doesn't already include it (so a value
+ * written by another app/session, or one the current engine's catalog
+ * doesn't happen to advertise, stays visible and selected instead of
+ * silently reverting to the default), then the offered choices.
+ */
+export function buildTtsVoiceOptionValues(voiceOptions: string[], currentVoice: string): string[] {
+  const extra = currentVoice && !voiceOptions.includes(currentVoice) ? [currentVoice] : [];
+  return ["", ...extra, ...voiceOptions];
+}
+
 export function LlmTasksPanel(props: LlmSettingsProps) {
   const messages = resolveMessages(props);
   const { config, save } = useSharedLlmConfig();
 
   const networkVoiceProviderId = config.providers.find((provider) => isNetworkProviderBaseUrl(provider.baseUrl))?.id ?? "";
+
+  // Drives the TTS voice picker's 'api' engine choices: fetched once per
+  // resolved (engine, baseUrl, apiKey) tuple rather than on every render, and
+  // reset (not left stale) when the row isn't in 'api' mode at all so a
+  // provider->network switch doesn't keep showing a prior server's voices.
+  const { baseUrl: ttsBaseUrl, apiKey: ttsApiKey, engine: ttsEngine } = resolveVoiceEngine(config, config.tts);
+  const [fetchedApiVoices, setFetchedApiVoices] = useState<string[]>([]);
+  useEffect(() => {
+    if (ttsEngine !== "api" || !ttsBaseUrl.trim()) {
+      setFetchedApiVoices([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchVoices(ttsBaseUrl, ttsApiKey).then((voices) => {
+      if (!cancelled) setFetchedApiVoices(voices);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ttsEngine, ttsBaseUrl, ttsApiKey]);
 
   function renderPresetTaskRow(key: string, label: string, tip: string, presetId: string, onPresetChange: (id: string) => void, effort: ReasoningEffort, onEffortChange: (effort: ReasoningEffort) => void, unsetLabel: string) {
     return (
@@ -1163,9 +1270,17 @@ export function LlmTasksPanel(props: LlmSettingsProps) {
 
     const heading = kind === "tts" ? messages.voiceTtsHeading : messages.voiceSttHeading;
     const tip = kind === "tts" ? messages.voiceTtsTip : messages.voiceSttTip;
-    const provider = providerId ? config.providers.find((entry) => entry.id === providerId) : config.providers.find((entry) => entry.id === config.presets.find((p) => p.id === config.defaultPresetId)?.providerId);
-    const baseUrl = provider?.baseUrl ?? "";
-    const engine: "browser" | "network" | "api" = !model.trim() ? "browser" : isNetworkProviderBaseUrl(baseUrl) ? "network" : "api";
+    const { baseUrl, engine } = resolveVoiceEngine(config, cfg);
+
+    const showTtsVoiceRow = kind === "tts" && shouldShowTtsVoiceRow(Boolean(props.voice?.tts), engine);
+    const ttsVoiceOptions = showTtsVoiceRow
+      ? resolveTtsVoiceOptions({
+          engine,
+          consumerStatus: props.consumerStatus,
+          fetchedApiVoices,
+          adapterVoiceOptions: props.voice?.tts?.voiceOptions,
+        })
+      : [];
 
     return (
       <>
@@ -1184,18 +1299,16 @@ export function LlmTasksPanel(props: LlmSettingsProps) {
                 ))}
               </select>
             </div>
-            {kind === "tts" && props.voice?.tts && engine !== "browser" && model !== NETWORK_VOICE_AUTO_MODEL ? (
+            {showTtsVoiceRow ? (
               <div class="mistai-task-model-field">
                 <select
                   value={cfg?.voice ?? ""}
                   onChange={(event) => save((draft) => setVoiceConfig(draft, "tts", { ...draft.tts, model: draft.tts?.model ?? "", voice: event.currentTarget.value }))}
                   aria-label={messages.voiceTtsVoiceLabel}
                 >
-                  {!cfg?.voice ? <option value="" disabled /> : null}
-                  {cfg?.voice && !(props.voice.tts.voiceOptions ?? []).includes(cfg.voice) ? <option value={cfg.voice}>{cfg.voice}</option> : null}
-                  {(props.voice.tts.voiceOptions ?? []).map((voice) => (
-                    <option key={voice} value={voice}>
-                      {voice}
+                  {buildTtsVoiceOptionValues(ttsVoiceOptions, cfg?.voice ?? "").map((value) => (
+                    <option key={value || "__default__"} value={value}>
+                      {value === "" ? messages.voiceProviderDefaultOption : value}
                     </option>
                   ))}
                 </select>

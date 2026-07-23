@@ -247,6 +247,54 @@ describe("ConsumerClient", () => {
     await expect(client.requestChat("room1", [{ role: "user", content: "hi" }])).rejects.toThrow("timed out");
   });
 
+  it("unions voices across providers into connected status, alongside models", async () => {
+    const { client, nodes } = makeClient();
+    await client.connect("room1");
+    const node = nodes[0];
+
+    node.emit(
+      EVENT_RAW,
+      "prov1",
+      encode({ v: 1, type: "provider_hello", services: ["chat", "tts"], models: ["m1"], voices: ["alloy", "verse"] }),
+    );
+    expect(client.status).toEqual({
+      phase: "connected",
+      providerId: "prov1",
+      models: ["m1"],
+      voices: ["alloy", "verse"],
+      providers: [{ id: "prov1", models: ["m1"], voices: ["alloy", "verse"], services: ["chat", "tts"] }],
+    });
+
+    // A second provider advertising an overlapping + new voice extends the union (deduped).
+    node.emit(
+      EVENT_RAW,
+      "prov2",
+      encode({ v: 1, type: "provider_hello", services: ["chat", "tts"], voices: ["alloy", "coral"] }),
+    );
+    expect(client.status).toEqual({
+      phase: "connected",
+      providerId: "prov1",
+      models: ["m1"],
+      voices: ["alloy", "verse", "coral"],
+      providers: [
+        { id: "prov1", models: ["m1"], voices: ["alloy", "verse"], services: ["chat", "tts"] },
+        { id: "prov2", models: undefined, voices: ["alloy", "coral"], services: ["chat", "tts"] },
+      ],
+    });
+  });
+
+  it("omits voices from connected status when no provider advertised any", async () => {
+    const { client, nodes } = makeClient();
+    await client.connect("room1");
+    nodes[0].emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello", services: ["chat", "tts"] }));
+    expect(client.status).toEqual({
+      phase: "connected",
+      providerId: "prov1",
+      providers: [{ id: "prov1", models: undefined, voices: undefined, services: ["chat", "tts"] }],
+    });
+    expect((client.status as { voices?: string[] }).voices).toBeUndefined();
+  });
+
   it("sends TTS requests to the provider", async () => {
     const { client, nodes } = makeClient();
     await client.connect("room1");

@@ -100,6 +100,50 @@ describe("useNetworkProvider hello re-broadcast", () => {
     unmount();
   });
 
+  it("re-sends provider_hello to all peers when advertisedVoices changes on a connected session", async () => {
+    const nodes: FakeMistNode[] = [];
+    let advertisedVoices = ["alloy"];
+    const getOptions = (): UseNetworkProviderOptions => ({
+      enabled: true,
+      roomId: "room1",
+      createNode: (nodeId) => {
+        const node = new FakeMistNode(nodeId);
+        nodes.push(node);
+        return node;
+      },
+      synthesize: async () => new Blob(),
+      advertisedVoices,
+    });
+
+    const { result, rerender, unmount } = renderProviderHook(getOptions);
+    await flushEffects();
+    expect(result.current?.status).toBe("connected");
+
+    const node = nodes[0];
+    expect(helloMessages(node)).toHaveLength(1);
+    expect((helloMessages(node)[0].msg as { voices?: string[] }).voices).toEqual(["alloy"]);
+
+    // An unrelated re-render (nothing advertised changed) must NOT re-send hello.
+    rerender();
+    await flushEffects();
+    expect(helloMessages(node)).toHaveLength(1);
+
+    // Changing advertisedVoices while connected re-broadcasts hello to all peers,
+    // without leaving/rejoining the room (connection maintained).
+    advertisedVoices = ["alloy", "verse"];
+    rerender();
+    await flushEffects();
+    const hellos = helloMessages(node);
+    expect(hellos).toHaveLength(2);
+    expect(hellos[1].toId).toBeNull();
+    expect((hellos[1].msg as { voices?: string[] }).voices).toEqual(["alloy", "verse"]);
+
+    expect(nodes).toHaveLength(1);
+    expect(node.joinedRooms).toEqual(["room1"]);
+
+    unmount();
+  });
+
   it("does not re-broadcast while still connecting, and does not touch node identity across renders", async () => {
     const nodes: FakeMistNode[] = [];
     let extraServices: string[] = [];
