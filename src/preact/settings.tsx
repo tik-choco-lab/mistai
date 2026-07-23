@@ -389,6 +389,19 @@ function getHostLabel(baseUrl: string): string {
   }
 }
 
+/**
+ * Whether `providerId` resolves to a `mist-network://` pseudo-provider, i.e.
+ * whether a preset/voice pick that uses it is "Network 由来" (imported from
+ * an AI Network room rather than configured directly by this app). Pure and
+ * module-scoped (not a `LlmConnectionPanel` closure) so both that panel's
+ * preset badges/rows and the タスク tab's preset/voice pickers can share the
+ * exact same predicate instead of re-deriving it.
+ */
+export function isNetworkPresetProviderId(config: SharedLlmConfigV1, providerId: string): boolean {
+  const provider = config.providers.find((p) => p.id === providerId);
+  return provider ? isNetworkProviderBaseUrl(provider.baseUrl) : false;
+}
+
 // ---------------------------------------------------------------------------
 // AI接続 (Connection) tab
 // ---------------------------------------------------------------------------
@@ -498,8 +511,7 @@ export function LlmConnectionPanel(props: LlmSettingsProps) {
   }
 
   function isNetworkPresetProvider(providerId: string): boolean {
-    const provider = config.providers.find((p) => p.id === providerId);
-    return provider ? isNetworkProviderBaseUrl(provider.baseUrl) : false;
+    return isNetworkPresetProviderId(config, providerId);
   }
 
   function getPresetBadges(preset: ModelPresetV1): string[] {
@@ -1198,6 +1210,56 @@ export function buildTtsVoiceOptionValues(voiceOptions: string[], currentVoice: 
   return ["", ...extra, ...voiceOptions];
 }
 
+// ---------------------------------------------------------------------------
+// Network-origin preset/option visibility (タスク tab pickers)
+//
+// Ported from tc-translate's SettingsModal.tsx/VoiceSettingsPanel.tsx
+// (`option-network` / `task-badge-network` / the disconnected-hides-Network-
+// presets filter). Kept as small pure functions, mirroring
+// resolveVoiceEngine/shouldShowTtsVoiceRow/resolveTtsVoiceOptions above, so
+// LlmTasksPanel's 既定/task rows and TTS/STT model pickers can share exactly
+// the same decisions the tests exercise.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether Network-origin (`mist-network://`) presets/options should be
+ * hidden from a task/voice model picker. Only takes effect when the app
+ * supplies `consumerStatus` (i.e. can actually report room connection
+ * state) and it isn't `'connected'` — apps that never pass `consumerStatus`
+ * can't tell whether the room is reachable at all, so their pickers keep
+ * listing Network presets unconditionally (unchanged prior behavior).
+ */
+export function shouldFilterNetworkPresetOptions(consumerStatus: ConsumerStatus | undefined): boolean {
+  return consumerStatus !== undefined && consumerStatus.phase !== "connected";
+}
+
+/**
+ * Which of `presets` a picker should actually offer: all of them when
+ * `filterNetwork` is false, otherwise every non-Network preset plus
+ * `keepPresetId` itself (even if it is a Network preset) — so a row already
+ * pointed at a Network preset before the room went disconnected keeps
+ * showing its current selection instead of silently reverting to blank.
+ */
+export function visiblePresetOptions(
+  config: SharedLlmConfigV1,
+  presets: readonly ModelPresetV1[],
+  filterNetwork: boolean,
+  keepPresetId?: string,
+): ModelPresetV1[] {
+  if (!filterNetwork) return [...presets];
+  return presets.filter((preset) => preset.id === keepPresetId || !isNetworkPresetProviderId(config, preset.providerId));
+}
+
+/** Whether the TTS/STT picker's `'__network__'` ("AI Networkにおまかせ") sentinel option should be rendered: only when a network provider has actually been imported, and (per `visiblePresetOptions`'s rule above) not hidden by the disconnected filter unless it's the row's current selection. */
+export function shouldShowNetworkVoiceSentinel(hasNetworkVoiceProvider: boolean, filterNetwork: boolean, isNetworkAutoSelected: boolean): boolean {
+  return hasNetworkVoiceProvider && (!filterNetwork || isNetworkAutoSelected);
+}
+
+/** Whether a task/voice row's *currently selected* value is Network-origin — drives the `mistai-task-badge-network` badge shown next to its `<select>`, independent of whether the disconnected filter is currently hiding other Network options. */
+export function isNetworkSelection(isNetworkAutoSelected: boolean, matchedPresetIsNetwork: boolean): boolean {
+  return isNetworkAutoSelected || matchedPresetIsNetwork;
+}
+
 export function LlmTasksPanel(props: LlmSettingsProps) {
   const messages = resolveMessages(props);
   const { config, save } = useSharedLlmConfig();
@@ -1225,6 +1287,9 @@ export function LlmTasksPanel(props: LlmSettingsProps) {
   }, [ttsEngine, ttsBaseUrl, ttsApiKey]);
 
   function renderPresetTaskRow(key: string, label: string, tip: string, presetId: string, onPresetChange: (id: string) => void, effort: ReasoningEffort, onEffortChange: (effort: ReasoningEffort) => void, unsetLabel: string) {
+    const filterNetwork = shouldFilterNetworkPresetOptions(props.consumerStatus);
+    const options = visiblePresetOptions(config, config.presets, filterNetwork, presetId);
+    const selectedIsNetwork = isNetworkPresetProviderId(config, config.presets.find((preset) => preset.id === presetId)?.providerId ?? "");
     return (
       <div class="mistai-task-model-item" key={key}>
         <span data-tip={tip}>{label}</span>
@@ -1232,12 +1297,13 @@ export function LlmTasksPanel(props: LlmSettingsProps) {
           <div class="mistai-task-model-field">
             <select value={presetId} onChange={(event) => onPresetChange(event.currentTarget.value)} aria-label={label}>
               <option value="">{unsetLabel}</option>
-              {config.presets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
+              {options.map((preset) => (
+                <option key={preset.id} value={preset.id} class={isNetworkPresetProviderId(config, preset.providerId) ? "mistai-option-network" : undefined}>
                   {preset.label || preset.id}
                 </option>
               ))}
             </select>
+            {selectedIsNetwork ? <span class="mistai-task-badge mistai-task-badge-network">{messages.presetNetworkBadge}</span> : null}
           </div>
           <ReasoningEffortSelect value={effort} onChange={onEffortChange} label={messages.reasoningEffortLabel} />
         </div>
@@ -1272,6 +1338,14 @@ export function LlmTasksPanel(props: LlmSettingsProps) {
     const tip = kind === "tts" ? messages.voiceTtsTip : messages.voiceSttTip;
     const { baseUrl, engine } = resolveVoiceEngine(config, cfg);
 
+    const filterNetwork = shouldFilterNetworkPresetOptions(props.consumerStatus);
+    const presetOptions = visiblePresetOptions(config, config.presets, filterNetwork, matchedPreset?.id);
+    const showNetworkSentinel = shouldShowNetworkVoiceSentinel(networkVoiceProviderId !== "", filterNetwork, isNetworkAuto);
+    const selectedIsNetwork = isNetworkSelection(
+      isNetworkAuto,
+      matchedPreset ? isNetworkPresetProviderId(config, matchedPreset.providerId) : false,
+    );
+
     const showTtsVoiceRow = kind === "tts" && shouldShowTtsVoiceRow(Boolean(props.voice?.tts), engine);
     const ttsVoiceOptions = showTtsVoiceRow
       ? resolveTtsVoiceOptions({
@@ -1290,14 +1364,19 @@ export function LlmTasksPanel(props: LlmSettingsProps) {
             <div class="mistai-task-model-field">
               <select value={selectValue} onChange={(event) => handleChange(event.currentTarget.value)} aria-label={heading}>
                 <option value="">{messages.voiceModelBrowserOption}</option>
-                {networkVoiceProviderId ? <option value="__network__">{messages.voiceModelNetworkAutoOption}</option> : null}
+                {showNetworkSentinel ? (
+                  <option value="__network__" class="mistai-option-network">
+                    {messages.voiceModelNetworkAutoOption}
+                  </option>
+                ) : null}
                 {model.trim() && !matchedPreset && !isNetworkAuto ? <option value="__current__">{model}</option> : null}
-                {config.presets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
+                {presetOptions.map((preset) => (
+                  <option key={preset.id} value={preset.id} class={isNetworkPresetProviderId(config, preset.providerId) ? "mistai-option-network" : undefined}>
                     {preset.label || preset.model || preset.id}
                   </option>
                 ))}
               </select>
+              {selectedIsNetwork ? <span class="mistai-task-badge mistai-task-badge-network">{messages.presetNetworkBadge}</span> : null}
             </div>
             {showTtsVoiceRow ? (
               <div class="mistai-task-model-field">
