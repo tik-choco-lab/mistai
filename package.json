@@ -1,6 +1,6 @@
 {
   "name": "@tik-choco/mistai",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": false,
   "description": "Shared LLM Network library: wire protocol, consumer/provider services, voice (TTS/STT), OpenAI-compatible upstream client, and preact hooks.",
   "type": "module",

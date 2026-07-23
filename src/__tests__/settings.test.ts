@@ -1,6 +1,10 @@
 // Exercises the pure, exported TTS-voice-row logic from ../preact/settings.tsx
 // (resolveVoiceEngine / shouldShowTtsVoiceRow / resolveTtsVoiceOptions /
-// buildTtsVoiceOptionValues) per tts-voice-selection-v1 §2.4.
+// buildTtsVoiceOptionValues) per tts-voice-selection-v1 §2.4, plus the
+// Network-origin option/badge/filter logic backported from tc-translate's
+// SettingsModal.tsx/VoiceSettingsPanel.tsx (isNetworkPresetProviderId /
+// shouldFilterNetworkPresetOptions / visiblePresetOptions /
+// shouldShowNetworkVoiceSentinel / isNetworkSelection).
 //
 // This package has no jsdom/happy-dom dependency (see
 // preact-network-provider.test.ts's own comment on the hand-rolled
@@ -14,9 +18,14 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTtsVoiceOptionValues,
+  isNetworkPresetProviderId,
+  isNetworkSelection,
   resolveTtsVoiceOptions,
   resolveVoiceEngine,
+  shouldFilterNetworkPresetOptions,
+  shouldShowNetworkVoiceSentinel,
   shouldShowTtsVoiceRow,
+  visiblePresetOptions,
 } from "../preact/settings.js";
 import {
   createPreset,
@@ -206,5 +215,108 @@ describe("buildTtsVoiceOptionValues", () => {
 
   it("adds no extra entry when there is no current voice (provider default selected)", () => {
     expect(buildTtsVoiceOptionValues(["alloy", "coral"], "")).toEqual(["", "alloy", "coral"]);
+  });
+});
+
+/** A config with one regular HTTP preset and one Network-origin (`mist-network://`) preset, for exercising the option-class/filter/badge logic below. */
+function configWithHttpAndNetworkPresets(): {
+  config: SharedLlmConfigV1;
+  httpPresetId: string;
+  networkPresetId: string;
+} {
+  const { config, providerId: httpProviderId } = configWithHttpProvider();
+  const httpPresetId = config.presets.find((preset) => preset.providerId === httpProviderId)!.id;
+
+  const networkProviderId = createProvider(config, "AI Network");
+  patchProvider(config, networkProviderId, { baseUrl: networkProviderBaseUrl("room1") });
+  const networkPresetId = createPreset(config, networkProviderId, "Room Model");
+  patchPreset(config, networkPresetId, { model: "room-model" });
+
+  return { config, httpPresetId, networkPresetId };
+}
+
+describe("isNetworkPresetProviderId", () => {
+  it("is false for a regular HTTP provider", () => {
+    const { config, providerId } = configWithHttpProvider();
+    expect(isNetworkPresetProviderId(config, providerId)).toBe(false);
+  });
+
+  it("is true for a mist-network:// pseudo-provider", () => {
+    const { config, providerId } = configWithNetworkProvider();
+    expect(isNetworkPresetProviderId(config, providerId)).toBe(true);
+  });
+
+  it("is false for an unknown/dangling providerId", () => {
+    const config = emptyLlmConfig();
+    expect(isNetworkPresetProviderId(config, "dangling")).toBe(false);
+    expect(isNetworkPresetProviderId(config, "")).toBe(false);
+  });
+});
+
+describe("shouldFilterNetworkPresetOptions", () => {
+  it("is false when consumerStatus is omitted entirely (app can't report connection state)", () => {
+    expect(shouldFilterNetworkPresetOptions(undefined)).toBe(false);
+  });
+
+  it("is false when connected", () => {
+    expect(shouldFilterNetworkPresetOptions({ phase: "connected", providerId: "prov1", providers: [] })).toBe(false);
+  });
+
+  it("is true when supplied but not connected", () => {
+    expect(shouldFilterNetworkPresetOptions({ phase: "searching" })).toBe(true);
+    expect(shouldFilterNetworkPresetOptions({ phase: "disconnected" } as ConsumerStatus)).toBe(true);
+  });
+});
+
+describe("visiblePresetOptions", () => {
+  it("returns every preset unchanged when filterNetwork is false", () => {
+    const { config, httpPresetId, networkPresetId } = configWithHttpAndNetworkPresets();
+    const ids = visiblePresetOptions(config, config.presets, false).map((preset) => preset.id);
+    expect(ids).toEqual(expect.arrayContaining([httpPresetId, networkPresetId]));
+    expect(ids).toHaveLength(config.presets.length);
+  });
+
+  it("hides Network-origin presets when filterNetwork is true and none is the kept/current selection", () => {
+    const { config, httpPresetId, networkPresetId } = configWithHttpAndNetworkPresets();
+    const ids = visiblePresetOptions(config, config.presets, true).map((preset) => preset.id);
+    expect(ids).toContain(httpPresetId);
+    expect(ids).not.toContain(networkPresetId);
+  });
+
+  it("keeps a Network-origin preset visible when it is the current selection (keepPresetId), even while filtering", () => {
+    const { config, httpPresetId, networkPresetId } = configWithHttpAndNetworkPresets();
+    const ids = visiblePresetOptions(config, config.presets, true, networkPresetId).map((preset) => preset.id);
+    expect(ids).toEqual(expect.arrayContaining([httpPresetId, networkPresetId]));
+    expect(ids).toHaveLength(config.presets.length);
+  });
+});
+
+describe("shouldShowNetworkVoiceSentinel", () => {
+  it("is false when no Network voice provider has been imported at all", () => {
+    expect(shouldShowNetworkVoiceSentinel(false, false, false)).toBe(false);
+    expect(shouldShowNetworkVoiceSentinel(false, true, true)).toBe(false);
+  });
+
+  it("is true when a provider exists and the filter is off", () => {
+    expect(shouldShowNetworkVoiceSentinel(true, false, false)).toBe(true);
+  });
+
+  it("is hidden by the disconnected filter unless it is the row's current selection", () => {
+    expect(shouldShowNetworkVoiceSentinel(true, true, false)).toBe(false);
+    expect(shouldShowNetworkVoiceSentinel(true, true, true)).toBe(true);
+  });
+});
+
+describe("isNetworkSelection", () => {
+  it("is true for the network-auto sentinel selection", () => {
+    expect(isNetworkSelection(true, false)).toBe(true);
+  });
+
+  it("is true when the matched preset is Network-origin", () => {
+    expect(isNetworkSelection(false, true)).toBe(true);
+  });
+
+  it("is false for a plain non-network selection", () => {
+    expect(isNetworkSelection(false, false)).toBe(false);
   });
 });
