@@ -106,6 +106,15 @@ export interface UseNetworkProviderOptions {
   transcribe?: TranscribeFn;
   /** Model ids advertised via provider_hello.models. */
   advertisedModels?: string[];
+  /**
+   * TTS voice names advertised via provider_hello.voices (see
+   * ../protocol.js). Meaningful only when `services` ends up including
+   * `"tts"` (i.e. `synthesize` is provided); harmless to pass otherwise since
+   * a consumer only reads it off a `"tts"`-advertising provider. Like
+   * `advertisedModels`, changes here are re-broadcast to the room on a live
+   * session (see the `helloKey` effect below).
+   */
+  advertisedVoices?: string[];
   /** Max retained request-log entries. Defaults to 50. */
   maxLogEntries?: number;
   /**
@@ -248,11 +257,13 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
     const services = [...deriveHelloServices(opts), ...(opts.extraServices ?? [])];
     if (opts.resolveOaiUpstream && !services.includes(OAI_TUNNEL_SERVICE)) services.push(OAI_TUNNEL_SERVICE);
     const models = opts.advertisedModels;
+    const voices = opts.advertisedVoices;
     return {
       v: 1,
       type: "provider_hello",
       services,
       ...(models && models.length > 0 ? { models } : {}),
+      ...(voices && voices.length > 0 ? { voices } : {}),
     };
   }
 
@@ -405,7 +416,7 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
   // is enough to close the loop. Joining/connecting sessions are skipped:
   // their own join broadcast reads the latest options from the ref anyway.
   const oaiService = options.resolveOaiUpstream ? OAI_TUNNEL_SERVICE : "";
-  const helloKey = `${deriveHelloServices(options).join(",")}|${(options.extraServices ?? []).join(",")}|${oaiService}|${(options.advertisedModels ?? []).join("\n")}`;
+  const helloKey = `${deriveHelloServices(options).join(",")}|${(options.extraServices ?? []).join(",")}|${oaiService}|${(options.advertisedModels ?? []).join("\n")}|${(options.advertisedVoices ?? []).join("\n")}`;
   const helloKeyRef = useRef(helloKey);
   useEffect(() => {
     if (helloKeyRef.current === helloKey) return;

@@ -34,6 +34,7 @@ type ServiceName = string;
 /** What the consumer knows about one announced provider. */
 interface ProviderInfo {
   models?: string[];
+  voices?: string[];
   services: readonly string[];
 }
 
@@ -64,8 +65,10 @@ export type ConsumerStatus =
       providerId: string;
       /** Union of every announced provider's models, deduped. Absent if none advertised any. */
       models?: string[];
+      /** Union of every announced provider's TTS voices, deduped. Absent if none advertised any. Consumed by LlmSettings' TTS voice picker (network engine) — see preact/settings.tsx. */
+      voices?: string[];
       /** Every currently known provider in the table. */
-      providers: Array<{ id: string; models?: string[]; services: readonly string[] }>;
+      providers: Array<{ id: string; models?: string[]; voices?: string[]; services: readonly string[] }>;
     }
   | { phase: "error"; message: string; code?: MistaiErrorCode };
 
@@ -106,6 +109,15 @@ function unionModels(entries: ReadonlyArray<readonly [string, ProviderInfo]>): s
   if (advertised.length === 0) return undefined;
   const set = new Set<string>();
   for (const [, info] of advertised) for (const m of info.models!) set.add(m);
+  return [...set];
+}
+
+/** Union of `voices` across every provider entry that advertised one; undefined if none did. Same shape as unionModels — kept separate since a peer can advertise one list without the other. */
+function unionVoices(entries: ReadonlyArray<readonly [string, ProviderInfo]>): string[] | undefined {
+  const advertised = entries.filter(([, info]) => info.voices !== undefined);
+  if (advertised.length === 0) return undefined;
+  const set = new Set<string>();
+  for (const [, info] of advertised) for (const v of info.voices!) set.add(v);
   return [...set];
 }
 
@@ -330,7 +342,7 @@ export class ConsumerClient {
         callbacks: {
           onMessage: (fromId, msg) => {
             if (msg.type === "provider_hello") {
-              pendingSession.providers.set(fromId, { models: msg.models, services: helloServices(msg) });
+              pendingSession.providers.set(fromId, { models: msg.models, voices: msg.voices, services: helloServices(msg) });
               // Identify ourselves so the provider can label us a consumer.
               network.send(fromId, { v: 1, type: "consumer_hello" });
               this.resolveProviderWaiters(pendingSession);
@@ -427,11 +439,13 @@ export class ConsumerClient {
     }
     const [firstId] = entries[0];
     const models = unionModels(entries);
+    const voices = unionVoices(entries);
     this.emitStatus({
       phase: "connected",
       providerId: firstId,
       ...(models !== undefined ? { models } : {}),
-      providers: entries.map(([id, info]) => ({ id, models: info.models, services: info.services })),
+      ...(voices !== undefined ? { voices } : {}),
+      providers: entries.map(([id, info]) => ({ id, models: info.models, voices: info.voices, services: info.services })),
     });
   }
 

@@ -370,6 +370,27 @@ describe("Settings-UI CRUD helpers", () => {
     setVoiceConfig(config, "tts", { model: "" });
     expect(config.tts).toEqual({ model: "" });
   });
+
+  it("setVoiceConfig preserves an existing speed set by another app instead of dropping it", () => {
+    const config = baseConfig();
+    // Simulates another app having set config.tts.speed independently — this
+    // library's own voice-row UI never writes `speed` at all.
+    config.tts = { model: "tts-1", speed: 1.25 };
+
+    setVoiceConfig(config, "tts", { model: "tts-1", voice: "alloy" });
+    expect(config.tts).toEqual({ model: "tts-1", voice: "alloy", speed: 1.25 });
+
+    // Switching providerId/model/voice again still keeps speed.
+    setVoiceConfig(config, "tts", { providerId: "p1", model: "tts-2" });
+    expect(config.tts).toEqual({ providerId: "p1", model: "tts-2", speed: 1.25 });
+  });
+
+  it("setVoiceConfig does not invent a speed field when none existed before", () => {
+    const config = baseConfig();
+    setVoiceConfig(config, "stt", { model: "whisper-1" });
+    expect(config.stt).toEqual({ model: "whisper-1" });
+    expect("speed" in (config.stt as object)).toBe(false);
+  });
 });
 
 describe("mist-network:// pseudo-provider conventions", () => {
