@@ -4,6 +4,7 @@ import {
   NETWORK_PROVIDER_URL_PREFIX,
   NETWORK_VOICE_AUTO_MODEL,
   advertisedModelName,
+  consolidateNetworkMirror,
   createPreset,
   createProvider,
   deletePreset,
@@ -414,5 +415,90 @@ describe("mist-network:// pseudo-provider conventions", () => {
     expect(networkVoiceModelParam(NETWORK_VOICE_AUTO_MODEL)).toBeUndefined();
     expect(networkVoiceModelParam("   ")).toBeUndefined();
     expect(networkVoiceModelParam("tts-1")).toBe("tts-1");
+  });
+});
+
+describe("consolidateNetworkMirror", () => {
+  it("is a no-op when there is no duplicate for the room", () => {
+    const config = emptyLlmConfig();
+    const providerId = ensureProvider(config, { baseUrl: networkProviderBaseUrl("room1"), apiKey: "" });
+    ensurePreset(config, { providerId, model: "gpt-4" });
+
+    const result = consolidateNetworkMirror(config, "room1");
+
+    expect(result.changed).toBe(false);
+    expect(result.presetIdRemap.size).toBe(0);
+    expect(config.providers).toHaveLength(1);
+    expect(config.presets).toHaveLength(1);
+  });
+
+  it("merges duplicate pseudo-provider rows for the same room (e.g. a cross-instance write race) into the first one, repointing presets and defaultPresetId", () => {
+    const config: SharedLlmConfigV1 = {
+      v: 1,
+      providers: [
+        { id: "p1", label: "AI Network", baseUrl: "mist-network://room1", apiKey: "" },
+        { id: "p2", label: "AI Network", baseUrl: "mist-network://room1", apiKey: "" },
+      ],
+      presets: [
+        { id: "pr1", label: "gpt-4", providerId: "p1", model: "gpt-4" },
+        { id: "pr2", label: "gpt-4", providerId: "p2", model: "gpt-4" }, // duplicate of pr1 under the other row
+        { id: "pr3", label: "claude", providerId: "p2", model: "claude" }, // unique - should be adopted, keep its own id
+      ],
+      defaultPresetId: "pr2", // was pointing at the row that's about to be removed
+      network: { roomId: "room1" },
+      updatedAt: "",
+    };
+
+    const result = consolidateNetworkMirror(config, "room1");
+
+    expect(result.changed).toBe(true);
+    expect(config.providers.map((p) => p.id)).toEqual(["p1"]);
+    expect(config.presets).toHaveLength(2);
+    expect(config.presets.every((p) => p.providerId === "p1")).toBe(true);
+    expect(result.presetIdRemap.get("pr2")).toBe("pr1");
+    expect(config.defaultPresetId).toBe("pr1");
+    expect(config.presets.some((p) => p.id === "pr3" && p.model === "claude")).toBe(true);
+  });
+
+  it("merges duplicate presets under a single provider row (e.g. a model re-advertised with incidental whitespace drift)", () => {
+    const config = emptyLlmConfig();
+    const providerId = ensureProvider(config, { baseUrl: networkProviderBaseUrl("room1"), apiKey: "" });
+    const survivorId = ensurePreset(config, { providerId, model: "gpt-4" });
+    // Bypass ensurePreset's own exact-match dedup to simulate a duplicate
+    // that already exists in storage (from before this consolidation
+    // existed, or from a raced write) with a whitespace-only difference.
+    config.presets.push({ id: "dup", label: "gpt-4", providerId, model: "gpt-4 " });
+
+    const result = consolidateNetworkMirror(config, "room1");
+
+    expect(result.changed).toBe(true);
+    expect(config.presets).toHaveLength(1);
+    expect(config.presets[0].id).toBe(survivorId);
+    expect(result.presetIdRemap.get("dup")).toBe(survivorId);
+  });
+
+  it("never touches a different room's pseudo-provider, or a real HTTP provider that happens to share a model name", () => {
+    const config: SharedLlmConfigV1 = {
+      v: 1,
+      providers: [
+        { id: "p1", label: "AI Network", baseUrl: "mist-network://room1", apiKey: "" },
+        { id: "p2", label: "AI Network", baseUrl: "mist-network://room2", apiKey: "" },
+        { id: "p3", label: "AI Network", baseUrl: "mist-network://room2", apiKey: "" }, // duplicate, but for room2
+        { id: "http1", label: "My OpenAI", baseUrl: "https://api.example.com/v1", apiKey: "sk-xxx" },
+      ],
+      presets: [
+        { id: "pr1", label: "gpt-4", providerId: "p1", model: "gpt-4" },
+        { id: "pr2", label: "gpt-4", providerId: "http1", model: "gpt-4" }, // same model name, real provider - untouched
+      ],
+      defaultPresetId: "pr1",
+      network: { roomId: "room1" },
+      updatedAt: "",
+    };
+
+    const result = consolidateNetworkMirror(config, "room1");
+
+    expect(result.changed).toBe(false);
+    expect(config.providers).toHaveLength(4);
+    expect(config.presets).toHaveLength(2);
   });
 });
