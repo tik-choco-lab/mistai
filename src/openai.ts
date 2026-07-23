@@ -126,6 +126,99 @@ export async function fetchModels(
   return ids;
 }
 
+/**
+ * OpenAI's documented voice set, used as a last-resort UI fallback when a
+ * TTS endpoint can't list its voices (fetchVoices below returns `[]` rather
+ * than throwing, so callers reach for this or their own adapter-supplied
+ * list instead). Ported from tc-translate's/tc-lingo's `src/lib/voices.ts`.
+ */
+export const OPENAI_TTS_VOICES: string[] = [
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "fable",
+  "onyx",
+  "nova",
+  "sage",
+  "shimmer",
+  "verse",
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Parses a voices response body, tolerating array/`voices`/`data` wrappers and string/object entries. Ported from tc-translate's/tc-lingo's `parseVoicesBody`. */
+function parseVoicesBody(body: unknown): string[] {
+  const rawList = Array.isArray(body)
+    ? body
+    : isRecord(body) && Array.isArray(body.voices)
+      ? body.voices
+      : isRecord(body) && Array.isArray(body.data)
+        ? body.data
+        : [];
+
+  return rawList
+    .map((entry): string => {
+      if (typeof entry === "string") return entry;
+      if (isRecord(entry)) {
+        if (typeof entry.id === "string") return entry.id;
+        if (typeof entry.name === "string") return entry.name;
+        if (typeof entry.voice === "string") return entry.voice;
+      }
+      return "";
+    })
+    .filter((id): id is string => id.length > 0);
+}
+
+/** Tries one candidate voices endpoint; returns null (not throw) so the caller can try the next one. */
+async function tryVoicesEndpoint(url: string, apiKey: string, fetchFn: FetchFn): Promise<string[] | null> {
+  let response: Response;
+  try {
+    response = await fetchFn(url, {
+      method: "GET",
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+    });
+  } catch {
+    return null; // network error — fall through to the next candidate endpoint
+  }
+  if (!response.ok) return null;
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    return null;
+  }
+
+  const voices = parseVoicesBody(json);
+  return voices.length > 0 ? voices : null;
+}
+
+/**
+ * Fetches TTS voice names from `{baseUrl}/audio/voices`, falling back to
+ * `{baseUrl}/voices` if that doesn't return a usable list. Unlike
+ * fetchModels, this never throws: OpenAI's own API has no voices-listing
+ * endpoint at all, so "can't determine the list" is an expected, common
+ * outcome here — callers (a provider deciding what to advertise, or a
+ * picker UI) fall back to `[]`/their own default rather than treating it as
+ * an error. Ported (and promoted to this shared library) from
+ * tc-translate's/tc-lingo's `src/lib/voices.ts`.
+ */
+export async function fetchVoices(baseUrl: string, apiKey = "", fetchFn: FetchFn = fetch): Promise<string[]> {
+  const base = baseUrl.replace(/\/+$/, "");
+  const candidates = [`${base}/audio/voices`, `${base}/voices`];
+
+  for (const url of candidates) {
+    const voices = await tryVoicesEndpoint(url, apiKey, fetchFn);
+    if (voices) return voices;
+  }
+
+  return [];
+}
+
 async function streamSse(
   body: ReadableStream<Uint8Array>,
   onDelta?: (delta: string) => void,

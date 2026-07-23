@@ -83,6 +83,15 @@ export interface ProviderHelloMsg {
    * `DEFAULT_PROVIDER_SERVICES` (legacy chat-only peer) — see helloServices().
    */
   services?: string[];
+  /**
+   * Optional, backward-compatible extension: TTS voice names this provider's
+   * upstream accepts (a catalog advertisement, meaningful only alongside
+   * `services` including `"tts"`). Each entry is an opaque string passed
+   * straight through to `tts_request.voice` — unlike `models`, there's no
+   * label/id split here since the provider forwards the value verbatim
+   * upstream. Absent when the provider couldn't determine its own voice list.
+   */
+  voices?: string[];
 }
 
 /** Resolves the effective service list of a hello, applying the legacy default. */
@@ -304,6 +313,9 @@ export function decode(data: Uint8Array | string): ProtocolMessage | null {
       }
       if (Array.isArray(m.services)) {
         hello.services = m.services.filter(isNonEmptyString);
+      }
+      if (Array.isArray(m.voices)) {
+        hello.voices = m.voices.filter(isNonEmptyString);
       }
       return hello;
     }

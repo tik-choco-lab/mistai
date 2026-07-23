@@ -152,6 +152,39 @@ describe("protocol encode/decode", () => {
     });
   });
 
+  it("round-trips provider_hello with voices", () => {
+    const msg = { v: 1 as const, type: "provider_hello" as const, voices: ["alloy", "verse"] };
+    expect(decode(encode(msg))).toEqual(msg);
+  });
+
+  it("round-trips provider_hello with models, services, and voices together", () => {
+    const msg = {
+      v: 1 as const,
+      type: "provider_hello" as const,
+      models: ["gpt-4o"],
+      services: ["chat", "tts"],
+      voices: ["alloy", "verse"],
+    };
+    expect(decode(encode(msg))).toEqual(msg);
+  });
+
+  it("filters non-string entries out of provider_hello voices", () => {
+    expect(
+      decode(JSON.stringify({ v: 1, type: "provider_hello", voices: ["alloy", 42, null, "verse", {}, ""] })),
+    ).toEqual({ v: 1, type: "provider_hello", voices: ["alloy", "verse"] });
+  });
+
+  it("drops the voices field when it is not an array", () => {
+    expect(decode(JSON.stringify({ v: 1, type: "provider_hello", voices: "alloy" }))).toEqual({
+      v: 1,
+      type: "provider_hello",
+    });
+    expect(decode(JSON.stringify({ v: 1, type: "provider_hello", voices: 42 }))).toEqual({
+      v: 1,
+      type: "provider_hello",
+    });
+  });
+
   it("round-trips a tts_request with optional fields", () => {
     const msg = {
       v: 1 as const,

@@ -401,13 +401,24 @@ export function deletePreset(config: SharedLlmConfigV1, id: string): void {
   if (config.defaultPresetId === id) config.defaultPresetId = config.presets[0]?.id ?? "";
 }
 
-/** Updates `config.tts`/`config.stt` in place from Settings UI edits. An empty `providerId` clears it (falls back to the default preset's provider). */
+/**
+ * Updates `config.tts`/`config.stt` in place from Settings UI edits. An
+ * empty `providerId` clears it (falls back to the default preset's
+ * provider); an empty/absent `voice` omits it the same way. Fields this
+ * function doesn't know about (currently just `speed`) are preserved from
+ * the existing value rather than dropped — `next` only carries what the
+ * voice-row UI actually edits, and another app may have set `speed`
+ * independently in this same shared-localStorage record, so a plain
+ * `config[kind] = next` here would silently discard it on every edit.
+ */
 export function setVoiceConfig(
   config: SharedLlmConfigV1,
   kind: "tts" | "stt",
   next: { providerId?: string; model: string; voice?: string },
 ): void {
+  const previous = config[kind];
   config[kind] = {
+    ...(previous?.speed !== undefined ? { speed: previous.speed } : {}),
     ...(next.providerId ? { providerId: next.providerId } : {}),
     model: next.model,
     ...(next.voice ? { voice: next.voice } : {}),
