@@ -759,6 +759,21 @@
   min-width: 0;
 }
 
+/* AI Networkルーム提供のpresetが選ばれているタスク/TTS/STT selectに添える印。
+   .mistai-task-badgeと同じprimaryトーンで統一し、AI接続タブのNetworkバッジ
+   と見た目を揃える。 */
+.mistai-task-badge-network {
+  flex-shrink: 0;
+}
+
+/* select内、AI Networkルーム由来のoptionをテキスト色で区別する。ネイティブ
+   optionはbackground/borderなど装飾がほぼ効かないブラウザが多いため、
+   colorのみ .mistai-model-row-network / .mistai-task-badge と同じprimary
+   トーンで当てる。 */
+option.mistai-option-network {
+  color: var(--mistai-primary, #0f766e);
+}
+
 .mistai-error-text {
   margin: 0 0 8px;
   color: var(--mistai-danger, #dc2626);
