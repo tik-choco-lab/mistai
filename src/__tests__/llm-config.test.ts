@@ -477,6 +477,64 @@ describe("consolidateNetworkMirror", () => {
     expect(result.presetIdRemap.get("dup")).toBe(survivorId);
   });
 
+  it("keeps a user-renamed preset's label as the survivor over a generic-labeled duplicate, even when the generic one is first in array order", () => {
+    // Regression: reproduces "AI Networkに再接続したら、自分で名前を付けたプリセットが
+    // 消えて汎用ラベルのものだけ残る" - two same-origin app instances (or two tabs) each
+    // created their own pseudo-provider row for the room before either write landed
+    // (see this function's doc comment), so the room's one advertised model ended up
+    // mirrored twice: pr1 (oldest row, still wearing the generic auto-stamped label)
+    // and pr2 (a later row, under which the user renamed their copy - and picked it as
+    // their default). Naive "first array entry wins" would silently discard pr2's
+    // rename; it must survive instead, just repointed at the oldest provider row.
+    const config: SharedLlmConfigV1 = {
+      v: 1,
+      providers: [
+        { id: "p1", label: "AI Network", baseUrl: "mist-network://room1", apiKey: "" },
+        { id: "p2", label: "AI Network", baseUrl: "mist-network://room1", apiKey: "" },
+      ],
+      presets: [
+        { id: "pr1", label: "gpt-4", providerId: "p1", model: "gpt-4" }, // generic label (== model), first in array
+        { id: "pr2", label: "作業用チャット", providerId: "p2", model: "gpt-4" }, // user-renamed, second in array
+      ],
+      defaultPresetId: "pr2",
+      network: { roomId: "room1" },
+      updatedAt: "",
+    };
+
+    const result = consolidateNetworkMirror(config, "room1");
+
+    expect(result.changed).toBe(true);
+    expect(config.providers.map((p) => p.id)).toEqual(["p1"]);
+    expect(config.presets).toHaveLength(1);
+    expect(config.presets[0]).toMatchObject({ id: "pr2", label: "作業用チャット", providerId: "p1" });
+    expect(result.presetIdRemap.get("pr1")).toBe("pr2");
+    // defaultPresetId already named the survivor - untouched, still valid.
+    expect(config.defaultPresetId).toBe("pr2");
+  });
+
+  it("falls back to array order when every duplicate in a group has an equally generic (or equally customized) label", () => {
+    const config: SharedLlmConfigV1 = {
+      v: 1,
+      providers: [
+        { id: "p1", label: "AI Network", baseUrl: "mist-network://room1", apiKey: "" },
+        { id: "p2", label: "AI Network", baseUrl: "mist-network://room1", apiKey: "" },
+      ],
+      presets: [
+        { id: "pr1", label: "お気に入り", providerId: "p1", model: "gpt-4" }, // customized, first
+        { id: "pr2", label: "サブ機", providerId: "p2", model: "gpt-4" }, // also customized, second
+      ],
+      defaultPresetId: "pr1",
+      network: { roomId: "room1" },
+      updatedAt: "",
+    };
+
+    const result = consolidateNetworkMirror(config, "room1");
+
+    expect(config.presets).toHaveLength(1);
+    expect(config.presets[0]).toMatchObject({ id: "pr1", label: "お気に入り" });
+    expect(result.presetIdRemap.get("pr2")).toBe("pr1");
+  });
+
   it("never touches a different room's pseudo-provider, or a real HTTP provider that happens to share a model name", () => {
     const config: SharedLlmConfigV1 = {
       v: 1,
