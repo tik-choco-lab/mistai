@@ -17,6 +17,7 @@ export type SynthesizeFn = (
   text: string,
   model: string | undefined,
   voice: string | undefined,
+  lang: string | undefined,
 ) => Promise<{ blob: Blob; mime: string }>;
 export type TranscribeFn = (
   audio: Blob,
@@ -114,7 +115,7 @@ export class VoiceProviderService {
     const model = msg.model ?? "tts";
     this.log({ id: msg.id, fromId, model, status: "started", startedAt, charCount: msg.text.length });
     try {
-      const { blob, mime } = await this.synthesize(msg.text, msg.model, msg.voice);
+      const { blob, mime } = await this.synthesize(msg.text, msg.model, msg.voice, msg.lang);
       const parts = chunkBase64(await blobToBase64(blob));
       parts.forEach((data, index) => {
         this.send(fromId, {

@@ -66,7 +66,7 @@ export class VoiceConsumerService {
   }
 
   /** Requests speech synthesis from `providerId`; resolves with the assembled audio Blob. */
-  requestTts(providerId: string, params: { text: string; model?: string; voice?: string }): Promise<Blob> {
+  requestTts(providerId: string, params: { text: string; model?: string; voice?: string; lang?: string }): Promise<Blob> {
     if (params.text.length > this.maxTtsTextChars) {
       return Promise.reject(new MistaiError("TTS_TEXT_TOO_LONG", "TTS text is too long to send over the network in one message."));
     }
@@ -81,6 +81,7 @@ export class VoiceConsumerService {
         ...req,
         ...(params.model ? { model: params.model } : {}),
         ...(params.voice ? { voice: params.voice } : {}),
+        ...(params.lang ? { lang: params.lang } : {}),
       });
     });
   }

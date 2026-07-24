@@ -206,6 +206,35 @@ describe("protocol encode/decode", () => {
     expect(decode(JSON.stringify({ v: 1, type: "tts_request", id: "t1", text: 5 }))).toBeNull();
   });
 
+  it("round-trips a tts_request with lang", () => {
+    const msg = { v: 1 as const, type: "tts_request" as const, id: "t1", text: "hi", lang: "ja-JP" };
+    expect(decode(encode(msg))).toEqual(msg);
+  });
+
+  it("omits lang from a bare tts_request", () => {
+    const msg = { v: 1 as const, type: "tts_request" as const, id: "t1", text: "hi" };
+    expect(decode(encode(msg))).toEqual(msg);
+    expect(decode(encode(msg))).not.toHaveProperty("lang");
+  });
+
+  it("drops a non-string tts_request.lang without rejecting the message", () => {
+    expect(decode(JSON.stringify({ v: 1, type: "tts_request", id: "t1", text: "hi", lang: 42 }))).toEqual({
+      v: 1,
+      type: "tts_request",
+      id: "t1",
+      text: "hi",
+    });
+  });
+
+  it("drops an empty tts_request.lang without rejecting the message", () => {
+    expect(decode(JSON.stringify({ v: 1, type: "tts_request", id: "t1", text: "hi", lang: "" }))).toEqual({
+      v: 1,
+      type: "tts_request",
+      id: "t1",
+      text: "hi",
+    });
+  });
+
   it("round-trips a tts_response", () => {
     const msg = {
       v: 1 as const,

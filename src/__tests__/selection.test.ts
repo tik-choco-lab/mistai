@@ -82,8 +82,8 @@ describe("selectProvider (pure matching algorithm)", () => {
       ["A", { services: ["chat"] }],
       ["B", { services: ["chat"] }],
     ]);
-    expect(selectProvider(providers, "chat", undefined, new Set(["A"]))).toEqual({ providerId: "B" });
-    expect(selectProvider(providers, "chat", undefined, new Set(["A", "B"]))).toBeNull();
+    expect(selectProvider(providers, "chat", undefined, undefined, new Set(["A"]))).toEqual({ providerId: "B" });
+    expect(selectProvider(providers, "chat", undefined, undefined, new Set(["A", "B"]))).toBeNull();
   });
 
   describe("random tie-break", () => {
@@ -103,6 +103,64 @@ describe("selectProvider (pure matching algorithm)", () => {
       vi.spyOn(Math, "random").mockReturnValue(0.99);
       expect(selectProvider(providers, "chat", undefined)?.providerId).toBe("B");
     });
+  });
+});
+
+describe("selectProvider voice-priority routing (tts only)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("prefers a provider that advertised the requested voice", () => {
+    const providers = new Map([
+      ["A", { voices: ["alloy"], services: ["tts"] }],
+      ["B", { voices: ["verse"], services: ["tts"] }],
+    ]);
+    expect(selectProvider(providers, "tts", undefined, "verse")).toEqual({ providerId: "B" });
+  });
+
+  it("falls back to a provider that never advertised a voices list when none matches", () => {
+    const providers = new Map([
+      ["A", { voices: ["alloy"], services: ["tts"] }],
+      ["B", { services: ["tts"] }], // no voices list at all
+    ]);
+    expect(selectProvider(providers, "tts", undefined, "verse")).toEqual({ providerId: "B" });
+  });
+
+  it("falls back to any eligible provider when every one advertised a non-matching voices list", () => {
+    const providers = new Map([
+      ["A", { voices: ["alloy"], services: ["tts"] }],
+      ["B", { voices: ["echo"], services: ["tts"] }],
+    ]);
+    const result = selectProvider(providers, "tts", undefined, "verse");
+    expect(result).not.toBeNull();
+    expect(["A", "B"]).toContain(result!.providerId);
+  });
+
+  it("applies voice priority within the model-narrowed tier, not across it", () => {
+    const providers = new Map([
+      ["A", { models: ["m1"], voices: ["verse"], services: ["tts"] }],
+      ["B", { models: ["m2"], voices: ["verse"], services: ["tts"] }],
+    ]);
+    // Both advertise the requested voice, but only A advertises the requested model.
+    expect(selectProvider(providers, "tts", "m1", "verse")).toEqual({ providerId: "A", model: "m1" });
+  });
+
+  it("ignores voice preference for non-tts services", () => {
+    const providers = new Map([
+      ["A", { voices: ["alloy"], services: ["chat"] }],
+      ["B", { voices: ["verse"], services: ["chat"] }],
+    ]);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    expect(selectProvider(providers, "chat", undefined, "verse")).toEqual({ providerId: "A" });
+  });
+
+  it("combines with exclude during failover: excluded voice-matching provider is skipped", () => {
+    const providers = new Map([
+      ["A", { voices: ["verse"], services: ["tts"] }],
+      ["B", { services: ["tts"] }],
+    ]);
+    expect(selectProvider(providers, "tts", undefined, "verse", new Set(["A"]))).toEqual({ providerId: "B" });
   });
 });
 
@@ -139,6 +197,29 @@ describe("ConsumerClient service eligibility routing", () => {
 
     await expect(client.requestTts("room1", { text: "hi" })).rejects.toThrow("No provider found");
     expect(node.sentMessages().some((s) => s.msg?.type === "tts_request")).toBe(false);
+  });
+
+  it("routes a TTS request with a voice hint to the provider advertising that voice", async () => {
+    const { client, nodes } = makeClient();
+    await client.connect("room1");
+    const node = nodes[0];
+    node.emit(EVENT_RAW, "genericProv", encode({ v: 1, type: "provider_hello", services: ["tts"] }));
+    node.emit(EVENT_RAW, "verseProv", encode({ v: 1, type: "provider_hello", services: ["tts"], voices: ["verse"] }));
+
+    const promise = client.requestTts("room1", { text: "hi", voice: "verse" });
+    await flushMicrotasks();
+
+    const ttsReqs = node.sentMessages().filter((s) => s.msg?.type === "tts_request");
+    expect(ttsReqs).toHaveLength(1);
+    expect(ttsReqs[0].toId).toBe("verseProv");
+
+    const id = (ttsReqs[0].msg as { id: string }).id;
+    node.emit(
+      EVENT_RAW,
+      "verseProv",
+      encode({ v: 1, type: "tts_response", id, seq: 0, data: "AAAA", last: true, mime: "audio/mpeg" }),
+    );
+    await expect(promise).resolves.toBeInstanceOf(Blob);
   });
 });
 
