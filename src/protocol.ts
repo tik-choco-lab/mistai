@@ -123,6 +123,14 @@ export interface TtsRequestMsg {
   text: string;
   model?: string;
   voice?: string;
+  /**
+   * Optional, backward-compatible extension: a BCP-47 language tag hinting
+   * the upstream's target language for synthesis. Purely advisory — a
+   * provider that doesn't understand it ignores it. An invalid (non-string
+   * or empty) value just drops the field rather than rejecting the whole
+   * message, same as provider_hello's optional extensions.
+   */
+  lang?: string;
 }
 
 /** Audio flows provider->consumer in ordered chunks; `last` marks the final one. */
@@ -369,6 +377,7 @@ export function decode(data: Uint8Array | string): ProtocolMessage | null {
         ...req,
         ...(m.model !== undefined ? { model: m.model as string } : {}),
         ...(m.voice !== undefined ? { voice: m.voice as string } : {}),
+        ...(isNonEmptyString(m.lang) ? { lang: m.lang } : {}),
       };
     }
     case "tts_response": {
