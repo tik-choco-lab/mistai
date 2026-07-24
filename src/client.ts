@@ -47,6 +47,7 @@ export interface ProviderSelection {
 interface ProviderWaiter {
   service: ServiceName;
   model: string | undefined;
+  voice: string | undefined;
   resolve: (selection: ProviderSelection) => void;
 }
 
@@ -122,6 +123,29 @@ function unionVoices(entries: ReadonlyArray<readonly [string, ProviderInfo]>): s
 }
 
 /**
+ * Within a tier of already-model-narrowed candidates, prefers providers whose
+ * advertised `voices` include the requested one (TTS only): ①a candidate that
+ * advertised the exact voice, ②else one that never advertised a voices list
+ * at all (so the request goes out without narrowing further), ③else any
+ * candidate in the tier — same three-tier shape as the model matching above.
+ * A no-op for non-tts services or when no `voice` was requested.
+ */
+function pickByVoice(
+  candidates: ReadonlyArray<readonly [string, ProviderInfo]>,
+  service: ServiceName,
+  voice: string | undefined,
+): string {
+  if (service === "tts" && voice !== undefined) {
+    const withVoice = candidates.filter(([, info]) => info.voices?.includes(voice));
+    if (withVoice.length > 0) return pickRandom(withVoice)[0];
+
+    const voiceListUnknown = candidates.filter(([, info]) => info.voices === undefined);
+    if (voiceListUnknown.length > 0) return pickRandom(voiceListUnknown)[0];
+  }
+  return pickRandom(candidates)[0];
+}
+
+/**
  * Matches a request to an eligible provider from the table:
  *  1. Narrow to providers announcing `service` (via provider_hello.services;
  *     see helloServices()), excluding any id in `exclude`.
@@ -130,13 +154,16 @@ function unionVoices(entries: ReadonlyArray<readonly [string, ProviderInfo]>): s
  *     all (send the request without a model so the provider's own default
  *     applies); else fall back to any eligible provider, sending the model
  *     anyway as a best effort (the upstream decides).
- *  3. Ties within a tier are broken randomly.
+ *  3. Within whichever tier won above, if a `voice` was requested (tts only):
+ *     apply the same three-tier preference to `voices` — see pickByVoice().
+ *  4. Remaining ties are broken randomly.
  * Returns null when no eligible provider exists.
  */
 export function selectProvider(
   providers: ReadonlyMap<string, ProviderInfo>,
   service: ServiceName,
   model: string | undefined,
+  voice?: string,
   exclude?: ReadonlySet<string>,
 ): ProviderSelection | null {
   const eligible = [...providers.entries()].filter(
@@ -145,22 +172,22 @@ export function selectProvider(
   if (eligible.length === 0) return null;
 
   if (model === undefined) {
-    return { providerId: pickRandom(eligible)[0] };
+    return { providerId: pickByVoice(eligible, service, voice) };
   }
 
   const withModel = eligible.filter(([, info]) => info.models?.includes(model));
   if (withModel.length > 0) {
-    return { providerId: pickRandom(withModel)[0], model };
+    return { providerId: pickByVoice(withModel, service, voice), model };
   }
 
   const modelListUnknown = eligible.filter(([, info]) => info.models === undefined);
   if (modelListUnknown.length > 0) {
     // These providers never advertised a models list — omit `model` and let
     // the provider apply its own default rather than guessing.
-    return { providerId: pickRandom(modelListUnknown)[0] };
+    return { providerId: pickByVoice(modelListUnknown, service, voice) };
   }
 
-  return { providerId: pickRandom(eligible)[0], model };
+  return { providerId: pickByVoice(eligible, service, voice), model };
 }
 
 /**
@@ -267,23 +294,24 @@ export class ConsumerClient {
       session,
       "chat",
       options.model,
+      undefined,
       (providerId, model) => session.consumer.request(providerId, messages, { model, onDelta, timeoutMs }),
       () => !receivedChunk,
     );
   }
 
   /** Requests speech synthesis over the LLM Network room; resolves with the audio Blob. */
-  async requestTts(roomId: string, params: { text: string; model?: string; voice?: string }): Promise<Blob> {
+  async requestTts(roomId: string, params: { text: string; model?: string; voice?: string; lang?: string }): Promise<Blob> {
     const session = await this.ensureTrimmedSession(roomId);
-    return this.requestWithFailover(session, "tts", params.model, (providerId, model) =>
-      session.voiceConsumer.requestTts(providerId, { text: params.text, model, voice: params.voice }),
+    return this.requestWithFailover(session, "tts", params.model, params.voice, (providerId, model) =>
+      session.voiceConsumer.requestTts(providerId, { text: params.text, model, voice: params.voice, lang: params.lang }),
     );
   }
 
   /** Sends audio for transcription over the LLM Network room; resolves with the text. */
   async requestStt(roomId: string, params: { audio: Blob; model?: string; fileName?: string }): Promise<string> {
     const session = await this.ensureTrimmedSession(roomId);
-    return this.requestWithFailover(session, "stt", params.model, (providerId, model) =>
+    return this.requestWithFailover(session, "stt", params.model, undefined, (providerId, model) =>
       session.voiceConsumer.requestStt(providerId, params.audio, { model, fileName: params.fileName }),
     );
   }
@@ -311,15 +339,16 @@ export class ConsumerClient {
     session: Session,
     service: ServiceName,
     model: string | undefined,
+    voice: string | undefined,
     attempt: (providerId: string, model: string | undefined) => Promise<T>,
     canRetry: () => boolean = () => true,
   ): Promise<T> {
-    const first = await this.waitForEligibleProvider(session, service, model);
+    const first = await this.waitForEligibleProvider(session, service, model, voice);
     try {
       return await attempt(first.providerId, first.model);
     } catch (err) {
       if (!canRetry() || !isFailoverEligible(err)) throw err;
-      const retry = selectProvider(session.providers, service, model, new Set([first.providerId]));
+      const retry = selectProvider(session.providers, service, model, voice, new Set([first.providerId]));
       if (!retry) throw err;
       return attempt(retry.providerId, retry.model);
     }
@@ -454,7 +483,7 @@ export class ConsumerClient {
     if (session.providerWaiters.length === 0) return;
     const remaining: ProviderWaiter[] = [];
     for (const waiter of session.providerWaiters) {
-      const selection = selectProvider(session.providers, waiter.service, waiter.model);
+      const selection = selectProvider(session.providers, waiter.service, waiter.model, waiter.voice);
       if (selection) waiter.resolve(selection);
       else remaining.push(waiter);
     }
@@ -466,8 +495,9 @@ export class ConsumerClient {
     session: Session,
     service: ServiceName,
     model: string | undefined,
+    voice: string | undefined,
   ): Promise<ProviderSelection> {
-    const immediate = selectProvider(session.providers, service, model);
+    const immediate = selectProvider(session.providers, service, model, voice);
     if (immediate) return Promise.resolve(immediate);
 
     // Only drop to "searching" if the table is empty — if other providers
@@ -481,6 +511,7 @@ export class ConsumerClient {
       const waiter: ProviderWaiter = {
         service,
         model,
+        voice,
         resolve: (selection) => {
           clearTimeout(timer);
           resolve(selection);

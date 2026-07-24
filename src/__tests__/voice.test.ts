@@ -36,9 +36,47 @@ describe("VoiceConsumerService + VoiceProviderService", () => {
 
     const blob = await consumer.requestTts("provider1", { text: "こんにちは", model: "tts-1", voice: "alloy" });
 
-    expect(synthesize).toHaveBeenCalledWith("こんにちは", "tts-1", "alloy");
+    expect(synthesize).toHaveBeenCalledWith("こんにちは", "tts-1", "alloy", undefined);
     expect(blob.type).toBe("audio/wav");
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(audioBytes);
+  });
+
+  it("passes lang through consumer -> wire -> provider's synthesize call", async () => {
+    const synthesize = vi.fn(async () => ({ blob: new Blob([]), mime: "audio/mpeg" }));
+
+    let consumer: VoiceConsumerService;
+    const provider = new VoiceProviderService(
+      (_toId, msg) => consumer.handleMessage(msg),
+      synthesize,
+      async () => "unused",
+    );
+    consumer = new VoiceConsumerService((_toId, msg) => {
+      void provider.handleMessage("consumer1", msg);
+    });
+
+    await consumer.requestTts("provider1", { text: "hello", model: "tts-1", voice: "alloy", lang: "ja-JP" });
+
+    expect(synthesize).toHaveBeenCalledWith("hello", "tts-1", "alloy", "ja-JP");
+  });
+
+  it("omits lang on the wire when not requested, so synthesize receives undefined", async () => {
+    const synthesize = vi.fn(async () => ({ blob: new Blob([]), mime: "audio/mpeg" }));
+    const sent: ProtocolMessage[] = [];
+    const consumer = new VoiceConsumerService((_toId, msg) => sent.push(msg));
+    const provider = new VoiceProviderService(
+      () => {
+        /* response delivery is irrelevant to this assertion */
+      },
+      synthesize,
+      async () => "unused",
+    );
+
+    const promise = consumer.requestTts("provider1", { text: "hello" });
+    await provider.handleMessage("consumer1", sent[0]);
+
+    expect(synthesize).toHaveBeenCalledWith("hello", undefined, undefined, undefined);
+    consumer.rejectAll(new Error("test cleanup")); // clears the pending request timer
+    await expect(promise).rejects.toThrow("test cleanup");
   });
 
   it("provider emits multiple ordered tts_response chunks for large audio", async () => {
