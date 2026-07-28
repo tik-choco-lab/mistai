@@ -22,7 +22,11 @@ export type MistaiErrorCode =
   | "UPSTREAM_HTTP_ERROR"
   | "UPSTREAM_BAD_RESPONSE"
   | "MODEL_LIST_EMPTY"
-  | "ENDPOINT_NOT_CONFIGURED";
+  | "ENDPOINT_NOT_CONFIGURED"
+  | "INVALID_PAIRING_CODE"
+  | "PAIRING_TIMEOUT"
+  | "PAIRING_REJECTED"
+  | "PAIRING_INVALID_DELEGATION";
 
 export class MistaiError extends Error {
   readonly code: MistaiErrorCode;
