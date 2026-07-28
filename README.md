@@ -5,7 +5,9 @@
 This library consolidates the mistllm implementation that had been copied into
 several apps (tc-mistllm / tc-translate / tc-pdf-viewer / tc-note): the wire
 protocol, consumer/provider services, voice (TTS/STT), the OpenAI-compatible
-upstream client, and preact hooks.
+upstream client, preact hooks, and — via the separate `@tik-choco/mistai/identity`
+subpath — the DID delegation chain that lets a person be recognized as the
+same identity across origins/devices.
 
 - The protocol is **wire compatible (v: 1)** with the existing implementations.
   Old and new clients can share the same room.
@@ -241,6 +243,93 @@ properties — border, surface, text, text-muted, text-strong):
   and request log with paging.
 - `consumerErrorText(status, messages)` — localized error string for an
   error-phase `ConsumerStatus` (catalog code first, raw message fallback).
+
+### `@tik-choco/mistai/identity`
+
+DID delegation chains: a permanent "root" identity (typically custodied by
+`mistl`, so it survives across every browser/origin) signs a short-lived
+authorization for an origin-local "leaf" key, so peers can recognize the same
+person across origins/devices without sharing raw private keys. Chain depth
+is fixed at 1 (root → leaf, no sub-delegation), there is no revocation list
+(delegations just expire and get reissued), and every receive-side check is
+backward compatible — a wire with no `delegation` field, or a peer that has
+never heard of delegation chains, behaves exactly as before. Full spec:
+`protocol/docs/data-contracts/docs/did-delegation.md` in the protocol repo;
+this subpath and mistl's `src/identity/{delegation,pairing}.rs` are the two
+canonical implementations peers must interoperate with.
+
+Not re-exported from the package root (like `llm-config`) — `did:key`
+generation/signing lives in `didKey.ts`, separate from `id.ts`'s
+`randomId`/`getPersistentNodeId` so the two don't collide.
+
+- **didKey** — `PublicDidIdentity` / `DidIdentity` types, `createDidIdentity()`
+  / `publicDidIdentity()` / `parseStoredDidIdentity()`,
+  `signStringWithDidIdentity()` / `verifyStringWithDid()`, and the did:key
+  codec (`didKeyFromEd25519PublicKey`, `didKeyFromPublicKeyMultibase`,
+  `ed25519PublicKeyFromDidKey`, `isEd25519DidKey`,
+  `publicKeyMultibaseFromEd25519`). Ported with identical semantics from
+  tc-storage's `src/crypto/didIdentity.ts` — everything except localStorage
+  access (that's `./store.ts`'s job here, not this module's).
+- **delegation** — `DelegationV1` type, `signDelegation(rootIdentity, leaf, { ttlMs?, now? })`
+  (default TTL 60 days), `verifyDelegation(delegation, { now?, leaf? })`
+  (checks all 8 rules from the spec: shape, both ends are Ed25519 did:keys,
+  `root !== leaf`, `iat < exp`, lifetime ≤ 400 days, ±5 min clock skew, valid
+  signature, and — when `leaf` is passed — an exact leaf match),
+  `parseDelegation(raw)` (shape-only, no signature check — for a pasted/manual
+  transfer), `delegationSigningPayload(d)`.
+- **store** — `SHARED_DELEGATION_KEY` ("tc-shared-did-delegation-v1", the
+  cross-app co-owned localStorage key, same last-write-wins pattern as
+  `tc-shared-llm-config-v1`), `loadDelegation()` / `saveDelegation()` /
+  `clearDelegation()`, `loadDelegationFor(leaf)` (verified read — returns
+  the stored delegation only if it verifies for `leaf`; a broken/expired/
+  foreign-leaf value is ignored WITHOUT clearing the key, since it may
+  belong to a different leaf sharing this origin), `subscribeDelegation(cb)`
+  (cross-tab `storage` event, mirrors `llm-config.ts`'s `subscribeLlmConfig`).
+- **wire** — `signWireWithDelegation(fields, identity, delegation?)` (attaches
+  `delegation` *before* signing so it's protected by the signature too),
+  `verifyWire(wire)` (signature-only — the delegation-unaware baseline check),
+  `resolveWireSender(wire, { now? })` → `ResolvedSender | null` (`null` only
+  if the wire's own signature fails; a broken delegation degrades to the leaf
+  identity rather than dropping the message).
+- **pairing** — browser side of "経路A: ペアリング" (mistl issues a delegation
+  over a throwaway mist room derived from a short code, e.g. `mistl key pair`).
+  `normalizePairingCode(input)` / `formatPairingCode(code)` /
+  `generatePairingCode()`, `pairingRoomId(code)` / `pairingMacKey(code)` /
+  `computePairingMac(msg, macKey)` (the room id / MAC key derivation — kept
+  byte-compatible with mistl's Rust port via cross-implementation test
+  vectors), `requestDelegation({ code, leaf, app, createNode, timeoutMs?, resendIntervalMs? })`
+  — joins the derived room, resends a MAC'd request every 3s (default) until
+  a MAC-valid response or error arrives or 60s (default) elapses, and always
+  leaves the room before settling either way.
+
+Typical flow for an app adopting root/leaf identity (e.g. tc-storage,
+tc-chat):
+
+```ts
+import { ensureDidIdentity } from './crypto/didIdentity.js' // the app's own leaf identity
+import {
+  loadDelegationFor, saveDelegation, requestDelegation,
+  signWireWithDelegation, resolveWireSender,
+} from '@tik-choco/mistai/identity'
+
+// 1. Receive a delegation once (pairing, or pasted from `mistl key delegate`).
+const leaf = await ensureDidIdentity()
+const delegation = await requestDelegation({
+  code: userTypedCode,
+  leaf: leaf.did,
+  app: 'tc-storage',
+  createNode: (id) => new MistNode(id),
+})
+saveDelegation(delegation)
+
+// 2. Attach it whenever signing an outgoing wire.
+const delegation = await loadDelegationFor(leaf.did)
+const wire = await signWireWithDelegation({ fromId: leaf.did, ...fields }, leaf, delegation)
+
+// 3. Resolve the sender's identity on receive (root when delegated, else leaf).
+const sender = await resolveWireSender(wire)
+if (sender) recordAuthor(sender.id) // same person across origins when delegated
+```
 
 ## Getting started
 

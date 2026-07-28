@@ -107,6 +107,10 @@ export const MESSAGES_EN: MistaiMessages = {
     UPSTREAM_BAD_RESPONSE: "The LLM API returned a response with an unexpected format.",
     MODEL_LIST_EMPTY: "Could not retrieve the model list.",
     ENDPOINT_NOT_CONFIGURED: "This provider has no such endpoint configured.",
+    INVALID_PAIRING_CODE: "The pairing code is invalid.",
+    PAIRING_TIMEOUT: "Pairing timed out.",
+    PAIRING_REJECTED: "The pairing request was rejected.",
+    PAIRING_INVALID_DELEGATION: "The received delegation is invalid.",
   },
 };
 
@@ -165,6 +169,10 @@ export const MESSAGES_JA: MistaiMessages = {
     UPSTREAM_BAD_RESPONSE: "LLM API の応答形式が不正です。",
     MODEL_LIST_EMPTY: "モデル一覧を取得できませんでした。",
     ENDPOINT_NOT_CONFIGURED: "このプロバイダーにはエンドポイントが設定されていません。",
+    INVALID_PAIRING_CODE: "ペアリングコードが不正です。",
+    PAIRING_TIMEOUT: "ペアリングがタイムアウトしました。",
+    PAIRING_REJECTED: "ペアリングリクエストが拒否されました。",
+    PAIRING_INVALID_DELEGATION: "受信した委譲が不正です。",
   },
 };
 
