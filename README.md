@@ -363,7 +363,7 @@ sibling checkouts, a local file reference avoids reinstalling on every change:
 With `file:`, run `npm install` once inside mistai first so the `prepare`
 script builds `dist/`, then run `npm install` in the app.
 
-### Pattern A: apps with a mistlib node (tc-translate / tc-pdf-viewer / tc-chat / tc-storage / tc-vrm-viewer)
+### Pattern A: apps with a mistlib node
 
 Inject the vendored mistlib wrapper's `MistNode`.
 
@@ -375,7 +375,7 @@ import { MistNode } from '../vendor/mistlib/wrappers/web/index.js'
 
 export const llmClient = new ConsumerClient({
   createNode: (id) => new MistNode(id),
-  nodeIdStorageKey: 'tc-translate-mistllm-node-id-v1', // to keep an app's existing key
+  nodeIdStorageKey: 'my-app:node-id', // optional: reuse a key the app already persists
 })
 
 // from the UI
@@ -407,7 +407,7 @@ const provider = useNetworkProvider({
 })
 ```
 
-### Pattern B: apps with a custom transport (tc-note's Yjs collab room)
+### Pattern B: apps with a custom transport (e.g. a Yjs collab room)
 
 When mist is not involved, wire a `SendFn` directly:
 
@@ -427,49 +427,14 @@ room.onMessage((fromId, bytes) => {
 })
 ```
 
-### Migration map from existing apps
-
-**tc-translate `src/lib/mistllm/*` → mistai**
-
-| old | new |
-|---|---|
-| `protocol.ts` | `@tik-choco/mistai` (`encode` / `decode` / types) |
-| `base64.ts` | `@tik-choco/mistai` (`blobToBase64` etc.) |
-| `randomId` in `node.ts` | `randomId` |
-| `Network` in `node.ts` | `Network` (now takes an injected `createNode`) |
-| `consumer.ts` | `ConsumerService` (`request` now takes an options object) |
-| `provider.ts` | `ProviderService` (same API) |
-| `voice-consumer.ts` / `voice-provider.ts` | `VoiceConsumerService` / `VoiceProviderService` |
-| `client.ts` (module singleton) | a `ConsumerClient` instance (make it a singleton in the app) |
-| `hooks/useNetworkConsumerStatus.ts` | `useConsumerStatus` in `@tik-choco/mistai/preact` |
-| `hooks/useNetworkConsumerConnection.ts` | `useConsumerConnection` |
-| `hooks/useNetworkProvider.ts` | `useNetworkProvider` (options no longer tied to app settings) |
-
-**tc-note `src/lib/mistllm/*` → mistai**
-
-| old | new |
-|---|---|
-| `protocol.ts` | `@tik-choco/mistai` |
-| `consumer.ts` / `provider.ts` | `ConsumerService` / `ProviderService` (direct SendFn, pattern B) |
-
-**tc-pdf-viewer `src/services/mistllm.js` → mistai**
-
-| old | new |
-|---|---|
-| protocol part (incl. `provider_hello.models`) | `@tik-choco/mistai` |
-| `NetworkChatClient` (timeouts, provider wait) | `ConsumerClient` (`providerWaitTimeoutMs` / `requestTimeoutMs`) |
-| provider part | `ProviderService` + `useNetworkProvider` (`advertisedModels`) |
-| claimRoom/releaseRoom single-node arbitration | stays in the app (out of scope for the library) |
-
 ### Notes
 
-- **mistlib wasm is not bundled.** Inject each app's vendored mistlib via
+- **mistlib wasm is not bundled.** Inject your own mistlib node via
   `createNode`.
-- The localStorage node-id key defaults to `mistai:node-id`; pass an app's old
-  key (e.g. `tc-translate-mistllm-node-id-v1`) as `nodeIdStorageKey` to keep an
-  existing identity.
-- The protocol is wire compatible (v: 1) with the existing implementations.
-  Old clients/providers and this library can share a room
+- The localStorage node-id key defaults to `mistai:node-id`; pass your own key
+  as `nodeIdStorageKey` to reuse an identity an app already persists.
+- The protocol is wire compatible (v: 1) with the pre-library implementations
+  this was extracted from, so old and new clients can share a room
   (`provider_hello.models` and `seq` are optional extensions).
 - `ConsumerClient.connect()` never throws. Receive errors via
   `onStatusChange` as `{ phase: 'error' }`.
