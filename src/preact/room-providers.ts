@@ -36,8 +36,9 @@ export function useRoomProviders(options: UseRoomProvidersOptions): Record<strin
     for (const provider of config.providers.filter(p => providerKind(p) === 'room')) {
       const room = roomIdFromBaseUrl(provider.baseUrl);
       if (room && provider.enabled !== false && (referenced.has(provider.id) || options.roomProvide[provider.id]?.enabled || options.settingsOpen)) { wanted.add(room); void rooms.roomConsumer(room).connect(room); }
-      else rooms.disconnectRoom(room);
     }
+    // Release only memberships acquired by this hook. An unselected room
+    // may still have an on-demand consumer with an active request.
     for (const room of joined.current) if (!wanted.has(room)) rooms.disconnectRoom(room);
     joined.current = wanted;
   }, [options.config, options.roomProvide, options.consumers, options.settingsOpen, refsKey]);
