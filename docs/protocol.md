@@ -22,7 +22,7 @@ The wire format, the OpenAI tunnel, and how a transport gets injected.
 |---|---|---|
 | `provider_hello` | provider → all/peer | provider announcement. Optional `models: string[]`, `services: string[]`, `voices: string[]` — all backward-compatible extensions |
 | `consumer_hello` | consumer → all/provider | consumer announcement (lets providers classify peers) |
-| `llm_request` | consumer → provider | `id`, `messages: ChatMessage[]`, optional `model` |
+| `llm_request` | consumer → provider | `id`, `messages: ChatMessage[]`, optional `model`, `reasoning_effort: string` |
 | `llm_response_chunk` | provider → consumer | `id`, `delta`, optional `seq` (0-based, monotonic; absent = legacy arrival order) |
 | `llm_response_done` | provider → consumer | `id`, optional `content` (falls back to the consumer's accumulated deltas) |
 | `llm_error` | provider → consumer | `id`, `message` |
@@ -43,6 +43,15 @@ the optional extension can never break provider discovery itself.
 
 The protocol is wire compatible with the pre-library implementations this was extracted from, so
 old and new clients can share a room.
+
+`llm_request.reasoning_effort` is an additive v1 extension: `none`, `minimal`,
+`low`, `medium`, `high`, `xhigh`, `max`, and unknown strings pass through unchanged.
+Providers forward a present value upstream, overriding their own default;
+absence uses the default for old consumers. Invalid non-string effort drops
+only that optional field. Old providers ignore it; response streaming is unchanged.
+
+Room chat -> `llm_request` (streaming). The oai tunnel is only for vision/OCR
+image content parts, `/models`, and `/embeddings`; task effort uses `llm_request`.
 
 ## OAI tunnel — OpenAI-compatible HTTP over P2P
 

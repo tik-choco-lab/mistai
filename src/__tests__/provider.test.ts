@@ -22,7 +22,7 @@ describe("ProviderService", () => {
       messages: [{ role: "user", content: "hi" }],
     });
 
-    expect(callLlm).toHaveBeenCalledWith([{ role: "user", content: "hi" }], undefined, expect.any(Function));
+    expect(callLlm).toHaveBeenCalledWith([{ role: "user", content: "hi" }], undefined, expect.any(Function), undefined);
     expect(sent).toEqual([
       { toId: "peerA", msg: { v: 1, type: "llm_response_chunk", id: "req1", delta: "Hel", seq: 0 } },
       { toId: "peerA", msg: { v: 1, type: "llm_response_chunk", id: "req1", delta: "lo", seq: 1 } },

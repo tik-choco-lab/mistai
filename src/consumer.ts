@@ -14,6 +14,8 @@ export type SendFn = (toId: string, msg: ProtocolMessage) => void;
 
 export interface ConsumerRequestOptions {
   model?: string;
+  /** Task effort sent as reasoning_effort; undefined leaves the provider default in effect. */
+  reasoningEffort?: string;
   onDelta?: (delta: string, full: string) => void;
   /**
    * Rejects the request if neither done nor error arrives within this window.
@@ -47,7 +49,7 @@ export class ConsumerService {
 
   /** Sends a chat request to `providerId` and resolves with the full assembled reply. */
   request(providerId: string, messages: ChatMessage[], options: ConsumerRequestOptions = {}): Promise<string> {
-    const { model, onDelta, timeoutMs } = options;
+    const { model, reasoningEffort, onDelta, timeoutMs } = options;
     const id = randomId();
     return new Promise((resolve, reject) => {
       const entry: PendingRequest = {
@@ -63,9 +65,11 @@ export class ConsumerService {
       };
       this.pending.set(id, entry);
       this.resetTimeout(id, entry);
-      const req: ProtocolMessage = model
-        ? { v: 1, type: "llm_request", id, messages, model }
-        : { v: 1, type: "llm_request", id, messages };
+      const req: ProtocolMessage = {
+        v: 1, type: "llm_request", id, messages,
+        ...(model ? { model } : {}),
+        ...(reasoningEffort !== undefined ? { reasoning_effort: reasoningEffort } : {}),
+      };
       this.send(providerId, req);
     });
   }

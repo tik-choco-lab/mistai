@@ -1,4 +1,4 @@
-# Exported API (v0.9.0)
+# Exported API (v0.9.1)
 
 Generated from the public entry points. `ui.css` is the stylesheet subpath.
 
@@ -10,7 +10,7 @@ Generated from the public entry points. `ui.css` is the stylesheet subpath.
 
 **Types**
 
-`ChatMessage`, `ConsumerClientOptions`, `ConsumerHelloMsg`, `ConsumerRequestOptions`, `ConsumerStatus`, `ConsumerStatusListener`, `FetchFn`, `KnownService`, `LlmCallFn`, `LlmErrorMsg`, `LlmRequestMsg`, `LlmResponseChunkMsg`, `LlmResponseDoneMsg`, `MistaiErrorCode`, `MistaiMessages`, `MistNodeLike`, `ModelFetchStatus`, `NetworkCallbacks`, `NetworkOptions`, `NodeScope`, `OaiErrorMsg`, `OaiRequestMsg`, `OaiResponseMsg`, `OaiTunnelClientOptions`, `OaiTunnelRequestInit`, `OaiTunnelResponse`, `OaiUpstream`, `OaiUpstreamResolver`, `OpenAIConfig`, `PendingRequest`, `ProtocolMessage`, `ProviderHelloMsg`, `ProviderLogEntry`, `ProviderLogOptions`, `ProviderLogStatus`, `ProviderSelection`, `RaftMessageMsg`, `RoomConsumers`, `RoomProviderOptions`, `RoomProviderState`, `RoomProvideV1`, `SendFn`, `SttRequestMsg`, `SttResponseMsg`, `SynthesizeFn`, `TranscribeFn`, `TtsRequestMsg`, `TtsResponseMsg`, `VoiceConsumerOptions`, `VoiceErrorMsg`, `VoiceProviderOptions`, `VoiceServiceKind`.
+`ChatMessage`, `ConsumerClientOptions`, `ConsumerHelloMsg`, `ConsumerRequestOptions`, `ConsumerStatus`, `ConsumerStatusListener`, `FetchFn`, `KnownService`, `LlmCallFn`, `LlmErrorMsg`, `LlmRequestMsg`, `LlmResponseChunkMsg`, `LlmResponseDoneMsg`, `MistaiErrorCode`, `MistaiMessages`, `MistNodeLike`, `ModelFetchStatus`, `NetworkCallbacks`, `NetworkOptions`, `NodeScope`, `OaiErrorMsg`, `OaiRequestMsg`, `OaiResponseMsg`, `OaiTunnelClientOptions`, `OaiTunnelRequestInit`, `OaiTunnelResponse`, `OaiUpstream`, `OaiUpstreamResolver`, `OpenAIConfig`, `PendingRequest`, `ProtocolMessage`, `ProviderHelloMsg`, `ProviderLogEntry`, `ProviderLogOptions`, `ProviderLogStatus`, `ProviderSelection`, `RaftMessageMsg`, `RoomChatOptions`, `RoomConsumers`, `RoomProviderOptions`, `RoomProviderState`, `RoomProvideV1`, `SendFn`, `SttRequestMsg`, `SttResponseMsg`, `SynthesizeFn`, `TranscribeFn`, `TtsRequestMsg`, `TtsResponseMsg`, `VoiceConsumerOptions`, `VoiceErrorMsg`, `VoiceProviderOptions`, `VoiceServiceKind`.
 
 
 ## `@tik-choco/mistai/llm-config`

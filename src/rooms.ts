@@ -1,17 +1,20 @@
 // tc-translate/lib/network.ts, scoped to the host's shared node factory.
 import { ConsumerClient, type ConsumerClientOptions } from './client.js';
+import type { ConsumerRequestOptions } from './consumer.js';
 import { OaiTunnelClient, type OaiTunnelRequestInit } from './tunnel.js';
 import type { ChatMessage } from './protocol.js';
 import type { MistNodeLike } from './node.js';
 import { cacheRoomModels } from './model-catalog.js';
 
 export type NodeScope = (nodeId: string) => MistNodeLike;
+export type RoomChatOptions = Pick<ConsumerRequestOptions, 'model' | 'reasoningEffort' | 'onDelta'>;
 export interface RoomConsumers {
   nodeScope: NodeScope;
   nodeIdStorageKey: string;
   roomConsumer(roomId: string): ConsumerClient;
   disconnectRoom(roomId: string): void;
-  requestRoomChat(roomId: string, messages: ChatMessage[], model?: string, onDelta?: (delta: string, full: string) => void): Promise<string>;
+  /** Streaming llm_request chat. Prefer the options form; positional model/onDelta remain supported. */
+  requestRoomChat(roomId: string, messages: ChatMessage[], modelOrOptions?: string | RoomChatOptions, onDelta?: (delta: string, full: string) => void): Promise<string>;
   requestRoomTts(roomId: string, params: { text: string; model?: string; voice?: string; lang?: string }): Promise<Blob>;
   requestRoomStt(roomId: string, params: { audio: Blob; model?: string; fileName?: string }): Promise<string>;
   requestRoomOpenAi(roomId: string, request: OaiTunnelRequestInit): ReturnType<OaiTunnelClient['request']>;
@@ -34,7 +37,10 @@ export function createRoomConsumers(nodeScope: NodeScope, options: Omit<Consumer
       return client;
     },
     disconnectRoom(roomId) { const room = roomId.trim(); consumers.get(room)?.disconnect(); tunnels.get(room)?.disconnect(); },
-    requestRoomChat(room, messages, model, onDelta) { return result.roomConsumer(room).requestChat(room.trim(), messages, { model, onDelta }); },
+    requestRoomChat(room, messages, modelOrOptions, onDelta) {
+      const options = typeof modelOrOptions === 'object' ? modelOrOptions : { model: modelOrOptions, onDelta };
+      return result.roomConsumer(room).requestChat(room.trim(), messages, options);
+    },
     requestRoomTts(room, params) { return result.roomConsumer(room).requestTts(room.trim(), params); },
     requestRoomStt(room, params) { return result.roomConsumer(room).requestStt(room.trim(), params); },
     requestRoomOpenAi(roomId, request) {

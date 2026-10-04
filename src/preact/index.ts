@@ -351,10 +351,10 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
     const providerService = callLlm
       ? new ProviderService(
           sendToNetwork,
-          (messages, model, onDelta) => {
+          (messages, model, onDelta, reasoningEffort) => {
             const fn = optionsRef.current.callLlm;
             if (!fn) throw new MistaiError("ENDPOINT_NOT_CONFIGURED", "This provider has no LLM endpoint configured.");
-            return fn(messages, model, onDelta);
+            return fn(messages, model, onDelta, reasoningEffort);
           },
           { onRequestLog: pushLog, maxLogEntries: cap },
         )

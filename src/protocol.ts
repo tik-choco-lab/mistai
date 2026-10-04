@@ -18,6 +18,8 @@ export interface LlmRequestMsg {
   id: string;
   messages: ChatMessage[];
   model?: string;
+  /** Optional task effort; unknown strings pass through and older providers ignore it. */
+  reasoning_effort?: string;
 }
 
 export interface LlmResponseChunkMsg {
@@ -340,7 +342,11 @@ export function decode(data: Uint8Array | string): ProtocolMessage | null {
         id: m.id,
         messages: m.messages as ChatMessage[],
       };
-      return m.model !== undefined ? { ...req, model: m.model as string } : req;
+      return {
+        ...req,
+        ...(m.model !== undefined ? { model: m.model as string } : {}),
+        ...(typeof m.reasoning_effort === "string" ? { reasoning_effort: m.reasoning_effort } : {}),
+      };
     }
     case "llm_response_chunk": {
       if (!isNonEmptyString(m.id)) return null;

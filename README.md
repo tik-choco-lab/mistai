@@ -1,11 +1,12 @@
-# mistai 0.9.0
+# mistai 0.9.1
 
 A TypeScript library for shared HTTP model connections and peer-to-peer AI rooms.
 Chat, TTS, STT and an OpenAI HTTP tunnel share one injected transport. Optional
 Preact settings give apps the same Connections / Tasks / Sharing interface.
 
-This is a **breaking 0.x release**. Presets are replaced by `{ providerId, model }`
-references, rooms are providers, and temperature is never sent upstream. See the
+0.9.1 adds backward-compatible task reasoning effort to streaming room chat.
+The 0.9.0 **breaking 0.x release** replaced presets with `{ providerId, model }`
+references. Rooms are providers, and temperature is never sent upstream. See the
 [0.8 migration instructions](#migration-from-08) before updating an existing app.
 
 ## Install
@@ -15,7 +16,7 @@ Install from GitHub or a sibling checkout; `prepare` builds the distribution:
 ```json
 {
   "dependencies": {
-    "@tik-choco/mistai": "github:tik-choco-lab/mistai#v0.9.0"
+    "@tik-choco/mistai": "github:tik-choco-lab/mistai#v0.9.1"
   }
 }
 ```
@@ -80,7 +81,9 @@ await Promise.all([
   rooms.roomConsumer('team').connect('team'),
   rooms.roomConsumer('home').connect('home'),
 ])
-const answer = await requestRoomChat('team', messages, 'raw-model-id', onDelta)
+const answer = await requestRoomChat('team', messages, {
+  model: 'raw-model-id', reasoningEffort: task.reasoningEffort, onDelta,
+})
 const audio = await requestRoomTts('home', {
   text: 'Hello', model: networkVoiceModelParam('network-auto'),
 })
@@ -97,6 +100,29 @@ the top-level room helpers use the latest registered scope. The injected node
 must support per-room sends (optional fourth `sendMessage` argument) and
 per-room leaves. `joinRoomAsync`, when present, gates early announcements.
 Only one real node is initialized, and room memberships are reference counted.
+
+Apps should use one helper for streaming room chat:
+`requestRoomChat(roomId: string, messages: ChatMessage[], options?: RoomChatOptions): Promise<string>`.
+`RoomChatOptions` contains optional `model`, `reasoningEffort: string` and
+`onDelta: (delta: string, full: string) => void`. The callback receives each
+fragment and the accumulated reply; the promise resolves with the full text.
+The scoped `rooms.requestRoomChat` uses the same API. Existing positional
+`requestRoomChat(roomId, messages, model?, onDelta?)` calls remain supported.
+
+**Routing rule: room chat -> `llm_request` (streaming); the oai tunnel is only
+for vision/OCR image content parts, `/models`, and `/embeddings`.** Effort does
+not require the tunnel. `ConsumerClient.requestChat` also accepts
+`{ model?, reasoningEffort?, onDelta? }`.
+
+The task's effort is sent as optional `llm_request.reasoning_effort` on wire v1.
+Values `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and unknown
+strings pass through unchanged. A present value overrides the provider default;
+absence keeps the default (`RoomProviderService`'s `reasoningEffort`). Old
+consumers still use that default, and old providers ignore the new field and
+stream normally, without applying the task's effort. For low-level providers,
+`ProviderService` passes effort as the optional fourth `LlmCallFn` argument;
+set `options.reasoningEffort` for a default or keep the default in your callback.
+Existing three-argument callbacks remain compatible.
 
 ## Preact settings and providing
 
@@ -209,7 +235,7 @@ const task = {
 `presets`, `defaultPresetId` and `network` remain readable migration data and
 are written back unchanged by `saveLlmConfig`; unmigrated same-origin apps still
 need them. New code never changes them or silently rewrites dangling refs.
-The localStorage key and wire protocol remain v1; the library version is 0.9.0.
+The localStorage key and wire protocol remain v1; the library version is 0.9.1.
 
 ## API and verification
 

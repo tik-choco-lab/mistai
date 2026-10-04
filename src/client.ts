@@ -16,7 +16,7 @@
 
 import { Network, type MistNodeLike } from "./node.js";
 import { MistaiError, type MistaiErrorCode } from "./errors.js";
-import { ConsumerService } from "./consumer.js";
+import { ConsumerService, type ConsumerRequestOptions } from "./consumer.js";
 import { VoiceConsumerService } from "./voice-consumer.js";
 import { helloServices, ERROR_CODE_UNSUPPORTED_SERVICE, type ChatMessage } from "./protocol.js";
 
@@ -277,7 +277,7 @@ export class ConsumerClient {
   async requestChat(
     roomId: string,
     messages: ChatMessage[],
-    options: { model?: string; onDelta?: (delta: string, full: string) => void } = {},
+    options: Pick<ConsumerRequestOptions, "model" | "reasoningEffort" | "onDelta"> = {},
   ): Promise<string> {
     const session = await this.ensureTrimmedSession(roomId);
     const timeoutMs = this.effectiveChatTimeoutMs();
@@ -295,7 +295,7 @@ export class ConsumerClient {
       "chat",
       options.model,
       undefined,
-      (providerId, model) => session.consumer.request(providerId, messages, { model, onDelta, timeoutMs }),
+      (providerId, model) => session.consumer.request(providerId, messages, { model, reasoningEffort: options.reasoningEffort, onDelta, timeoutMs }),
       () => !receivedChunk,
     );
   }

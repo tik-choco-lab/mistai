@@ -13,7 +13,7 @@
 // ~35ms setTimeout chain (see node_modules/preact/hooks/src/index.js), hence
 // the real-timer flushEffects() helper below instead of a microtask flush.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { h, render, type VNode } from "preact";
 import {
   useNetworkProvider,
@@ -22,6 +22,8 @@ import {
 } from "../preact/index.js";
 import type { OaiUpstream } from "../tunnel.js";
 import { FakeMistNode } from "./fake-node.js";
+import { EVENT_RAW } from "../node.js";
+import { encode } from "../protocol.js";
 
 // preact.render()'s only use of `document` is an identity check
 // (`parentDom == document`); an empty stub satisfies it without pulling in a
@@ -52,6 +54,22 @@ function helloMessages(node: FakeMistNode) {
 }
 
 describe("useNetworkProvider hello re-broadcast", () => {
+  it("forwards request effort through the live callLlm wrapper", async () => {
+    const node = new FakeMistNode('provider');
+    const messages = [{ role: 'user' as const, content: 'hi' }];
+    const callLlm = vi.fn(async (_messages, _model, onDelta: (delta: string) => void, _effort?: string) => {
+      onDelta('ok');
+      return 'ok';
+    });
+    const { unmount } = renderProviderHook(() => ({ enabled: true, roomId: 'team', createNode: () => node, callLlm }));
+    try {
+      await flushEffects();
+      node.emit(EVENT_RAW, 'consumer', encode({ v: 1, type: 'llm_request', id: 'effort', messages, reasoning_effort: 'none' }));
+      await vi.waitFor(() => expect(node.sentMessages().find(sent => sent.msg?.type === 'llm_response_done')).toBeDefined());
+      expect(callLlm).toHaveBeenCalledWith(messages, undefined, expect.any(Function), 'none');
+    } finally { unmount(); }
+  });
+
   afterEach(() => {
     // Each test unmounts explicitly; nothing global to reset.
   });
