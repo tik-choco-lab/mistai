@@ -75,7 +75,7 @@ describe("createSharedNodeScope", () => {
     providerHandle.joinRoom("room1"); // same room, two handles
 
     const realNode = realNodes[0];
-    expect(realNode.joinedRooms).toEqual(["room1", "room1"]);
+    expect(realNode.joinedRooms).toEqual(["room1"]);
 
     // Consumer leaves the shared room — refcount drops from 2 to 1, so the
     // real node must NOT actually leave the room (provider still needs it).

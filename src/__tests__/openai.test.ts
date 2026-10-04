@@ -45,16 +45,16 @@ describe("streamChatCompletion", () => {
     expect(onDelta).toHaveBeenCalledWith("hi there");
   });
 
-  it("includes temperature and reasoning_effort only when configured", async () => {
+  it("ignores legacy temperature and sends explicit none reasoning effort", async () => {
     const fetchFn = vi.fn(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string);
-      expect(body.temperature).toBe(0.3);
+      expect('temperature' in body).toBe(false);
       expect(body.reasoning_effort).toBe("none");
       return jsonResponse({ choices: [{ message: { content: "ok" } }] });
     });
 
     await streamChatCompletion(
-      { ...config, temperature: 0.3, reasoningEffort: "none" },
+      { ...config, ...{ temperature: 0.3 }, reasoningEffort: "none" },
       messages,
       undefined,
       fetchFn as unknown as typeof fetch,

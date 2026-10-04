@@ -98,7 +98,7 @@ export class ProviderService {
       this.pushLog({ ...entry, status: "done", charCount: content.length });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.send(fromId, { v: 1, type: "llm_error", id: msg.id, message });
+      this.send(fromId, { v: 1, type: "llm_error", id: msg.id, message, ...(message === 'model_not_shared' ? { code: 'model_not_shared' } : {}) });
       this.pushLog({ ...entry, status: "error", charCount, detail: message });
     }
   }

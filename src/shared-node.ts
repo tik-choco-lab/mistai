@@ -48,6 +48,9 @@ interface ScopeState {
   realNodeId: string | null;
   readonly liveHandles: Set<SharedNodeHandle>;
   readonly roomRefCounts: Map<string, number>;
+  initPromise?: Promise<void>;
+  readonly roomJoins: Map<string, Promise<void>>;
+  readonly readyRooms: Set<string>;
 }
 
 class SharedNodeHandle implements MistNodeLike {
@@ -64,7 +67,9 @@ class SharedNodeHandle implements MistNodeLike {
   }
 
   async init(): Promise<void> {
-    await this.ensureRealNode().init();
+    const node = this.ensureRealNode();
+    this.scope.initPromise ??= node.init().catch(error => { this.scope.initPromise = undefined; throw error; });
+    await this.scope.initPromise;
     this.scope.liveHandles.add(this);
   }
 
@@ -93,14 +98,28 @@ class SharedNodeHandle implements MistNodeLike {
     this.handler = handler;
   }
 
-  joinRoom(roomId: string): void {
+  joinRoom(roomId: string): Promise<void> {
+    this.scope.liveHandles.add(this);
     if (!this.rooms.has(roomId)) {
       this.rooms.add(roomId);
       this.scope.roomRefCounts.set(roomId, (this.scope.roomRefCounts.get(roomId) ?? 0) + 1);
     }
-    // Re-joining an already-joined room is an idempotent re-announce per the
-    // wrapper, so no need to guard the underlying call.
-    this.scope.realNode?.joinRoom(roomId);
+    let joined = this.scope.roomJoins.get(roomId);
+    if (!joined) {
+      const node = this.scope.realNode;
+      const pending = node?.joinRoomAsync ? node.joinRoomAsync(roomId) : node?.joinRoom(roomId);
+      if (!pending) this.scope.readyRooms.add(roomId);
+      joined = pending ? pending.then(() => {
+        this.scope.readyRooms.add(roomId);
+        if (!this.scope.roomRefCounts.has(roomId)) {
+          node?.leaveRoom(roomId);
+          this.scope.readyRooms.delete(roomId);
+          this.scope.roomJoins.delete(roomId);
+        }
+      }).catch(error => { this.scope.roomJoins.delete(roomId); throw error; }) : Promise.resolve();
+      this.scope.roomJoins.set(roomId, joined);
+    }
+    return joined;
   }
 
   /**
@@ -122,7 +141,11 @@ class SharedNodeHandle implements MistNodeLike {
         // the shared node stays usable for the other handles and for later
         // re-joins. The real node's leaveRoom() is NEVER called without a
         // roomId for exactly this reason.
-        this.scope.realNode?.leaveRoom(room);
+        if (this.scope.readyRooms.has(room)) {
+          this.scope.realNode?.leaveRoom(room);
+          this.scope.readyRooms.delete(room);
+          this.scope.roomJoins.delete(room);
+        }
       } else {
         this.scope.roomRefCounts.set(room, remaining);
       }
@@ -131,7 +154,12 @@ class SharedNodeHandle implements MistNodeLike {
   }
 
   sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: number): void {
-    this.scope.realNode?.sendMessage(toId, payload, delivery);
+    for (const room of this.rooms) {
+      if (this.scope.readyRooms.has(room)) this.scope.realNode?.sendMessage(toId, payload, delivery, room);
+      else void this.scope.roomJoins.get(room)?.then(() => {
+        if (this.rooms.has(room)) this.scope.realNode?.sendMessage(toId, payload, delivery, room);
+      }).catch(() => {});
+    }
   }
 
   /** Fan-out target for the real node's single global event callback. */
@@ -172,6 +200,8 @@ export function createSharedNodeScope(createRealNode: (nodeId: string) => MistNo
     realNodeId: null,
     liveHandles: new Set(),
     roomRefCounts: new Map(),
+    roomJoins: new Map(),
+    readyRooms: new Set(),
   };
   return (nodeId: string) => new SharedNodeHandle(nodeId, scope, createRealNode);
 }

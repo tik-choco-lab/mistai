@@ -1,175 +1,230 @@
-<div align="center">
+# mistai 0.9.0
 
-# mistai
+A TypeScript library for shared HTTP model connections and peer-to-peer AI rooms.
+Chat, TTS, STT and an OpenAI HTTP tunnel share one injected transport. Optional
+Preact settings give apps the same Connections / Tasks / Sharing interface.
 
-**A shared LLM network over peer-to-peer rooms — one browser lends its model, the others use it.**
-
-[![version](https://img.shields.io/github/v/tag/tik-choco-lab/mistai?label=version&color=2f6feb)](https://github.com/tik-choco-lab/mistai/tags)
-[![license](https://img.shields.io/badge/license-MPL--2.0-blue)](LICENSE)
-
-English · [日本語](README.ja.md) · [简体中文](README.zh.md)
-
-</div>
-
----
-
-One peer in a room holds an API key and a model endpoint. Everyone else in that room can talk to
-it — chat, text-to-speech, speech-to-text — without ever seeing the key, because requests are
-forwarded by the peer that owns it rather than shared out. Providers announce which services and
-models they offer; consumers pick a match, and fail over when one goes quiet.
-
-Written in TypeScript, for the browser. The transport is not bundled: you inject a
-[mistlib](https://github.com/tik-choco-lab/mistlib) wasm node, or anything else that can send
-bytes to a peer.
-
-## Features
-
-|  |  |
-| --- | --- |
-| **Bring your own transport** | Inject a mistlib node, a collaboration room, anything with send/receive — no mesh library is bundled |
-| **Chat, TTS and STT** | One protocol for all three, with chunked streaming and reordering |
-| **Capability matching** | Providers advertise services, models and voices; consumers filter, pick, and fail over once |
-| **OpenAI tunnel** | Proxy any OpenAI-compatible endpoint over the room, so features the chat protocol doesn't model still work |
-| **Keys stay home** | The consumer's request carries no credentials; the provider forwards it upstream with its own |
-| **Optional preact UI** | Status indicators, a provider panel, and a shared three-tab settings screen |
-| **Portable identity** | DID delegation chains recognize the same person across origins and devices |
+This is a **breaking 0.x release**. Presets are replaced by `{ providerId, model }`
+references, rooms are providers, and temperature is never sent upstream. See the
+[0.8 migration instructions](#migration-from-08) before updating an existing app.
 
 ## Install
 
-Not on npm. Install from GitHub — the `prepare` script builds `dist/` during install:
+Install from GitHub or a sibling checkout; `prepare` builds the distribution:
 
 ```json
 {
   "dependencies": {
-    "@tik-choco/mistai": "github:tik-choco-lab/mistai#v0.8.0"
+    "@tik-choco/mistai": "github:tik-choco-lab/mistai#v0.9.0"
   }
 }
 ```
 
-Drop the `#v0.8.0` to track the default branch. For side-by-side development with sibling
-checkouts, `"file:../mistai"` avoids reinstalling on every change — run `npm install` inside mistai
-once first, so `prepare` builds `dist/`.
+The release tag becomes usable when the maintainer publishes it. During rollout,
+use `"file:../mistai"`. Preact is an optional peer dependency used by `/preact`.
 
-`preact` is an optional peer dependency, needed only for the `/preact` subpath.
-
-## Usage
-
-### With a mesh node
-
-Inject the vendored mistlib wrapper's `MistNode`. Consumer side:
+## Shared connections and references
 
 ```ts
-import { ConsumerClient } from '@tik-choco/mistai'
-import { MistNode } from '../vendor/mistlib/wrappers/web/index.js'
+import {
+  emptyLlmConfig, loadLlmConfig, saveLlmConfig,
+  createProvider, patchProvider, createRoomProvider, setDefaultModel,
+  resolveModel, migrateSharedLlmConfig,
+} from '@tik-choco/mistai/llm-config'
+import { refreshProviderModels, streamChatCompletion } from '@tik-choco/mistai'
 
-export const llmClient = new ConsumerClient({
-  createNode: (id) => new MistNode(id),
-  nodeIdStorageKey: 'my-app:node-id', // optional: reuse a key the app already persists
-})
+const config = loadLlmConfig() ?? emptyLlmConfig()
+if (migrateSharedLlmConfig(config).changed) saveLlmConfig(config)
 
-const reply = await llmClient.requestChat(roomId, messages, { model, onDelta })
-const audio = await llmClient.requestTts(roomId, { text, model, voice })
-const text  = await llmClient.requestStt(roomId, { audio: blob, model, fileName })
+const id = createProvider(config, 'My endpoint')
+patchProvider(config, id, { baseUrl: 'https://example.test/v1', apiKey: '' })
+createRoomProvider(config, { roomId: 'my-team-room', label: 'Team' })
+setDefaultModel(config, { providerId: id, model: 'chosen-model-id' })
+saveLlmConfig(config)
+await refreshProviderModels(id, { force: true })
+
+const target = resolveModel(config, taskRef)
+if (!target) throw new Error('No usable model configured')
+const answer = await streamChatCompletion(
+  { ...target, reasoningEffort: 'none' }, messages, onDelta,
+)
 ```
 
-Provider side, with preact:
+Config stays at `v: 1`, in `tc-shared-llm-config-v1` localStorage. Disabling or
+deleting a provider preserves task/default/voice references. `resolveModel`
+tries the exact reference, then only a usable `defaultModel`, then returns null.
+`resolveModelExact` never falls back. Neither function changes stored references.
+
+`models` and `modelsFetchedAt` hold discovery caches. Opening settings, sharing
+or a picker revalidates enabled providers without a refresh button. The catalog
+deduplicates simultaneous calls, throttles successful fetches for 10 seconds,
+keeps cached models on failure, and discards results from superseded connections.
+Connection edits and re-enabling use `{ force: true }`. No periodic polling runs.
+
+## One node, multiple rooms
 
 ```ts
-import { streamChatCompletion } from '@tik-choco/mistai'
-import { useNetworkProvider } from '@tik-choco/mistai/preact'
-import { MistNode } from '../vendor/mistlib/wrappers/web/index.js'
+import {
+  createSharedNodeScope, createRoomConsumers,
+  requestRoomChat, requestRoomTts, requestRoomStt, requestRoomOpenAi,
+} from '@tik-choco/mistai'
+import { networkVoiceModelParam } from '@tik-choco/mistai/llm-config'
+import { MistNode } from './vendor/mistlib/wrappers/web/index.js'
 
-const provider = useNetworkProvider({
-  enabled: settings.networkProviderEnabled,
-  roomId: settings.roomId,
-  createNode: (id) => new MistNode(id),
-  callLlm: (messages, model, onDelta) =>
-    streamChatCompletion(
-      { baseUrl: settings.baseUrl, apiKey: settings.apiKey, model: model ?? settings.model },
-      messages,
-      onDelta,
-    ),
-  synthesize: async (text, model, voice) => ({ blob: await ttsUpstream(text, model, voice), mime: 'audio/mpeg' }),
-  transcribe: (audio, mime, model, fileName) => sttUpstream(audio, model, fileName),
-  advertisedModels: models, // published as provider_hello.models
+const nodeScope = createSharedNodeScope(id => new MistNode(id, signalingConfig))
+export const rooms = createRoomConsumers(nodeScope, {
+  nodeIdStorageKey: 'my-app:node-id',
 })
+
+await Promise.all([
+  rooms.roomConsumer('team').connect('team'),
+  rooms.roomConsumer('home').connect('home'),
+])
+const answer = await requestRoomChat('team', messages, 'raw-model-id', onDelta)
+const audio = await requestRoomTts('home', {
+  text: 'Hello', model: networkVoiceModelParam('network-auto'),
+})
+const text = await requestRoomStt('home', { audio: recording })
+const response = await requestRoomOpenAi('team', {
+  path: '/embeddings', method: 'POST', contentType: 'application/json',
+  body: JSON.stringify({ model: 'raw-model-id', input: 'Hello' }),
+})
+rooms.disconnectRoom('home') // team and its provider memberships survive
 ```
 
-Which services get advertised follows from which upstream functions you pass. Omit `synthesize`
-and TTS requests are rejected with `unsupported_service` rather than timing out.
+Call `createRoomConsumers` once at app startup. Its returned methods are scoped;
+the top-level room helpers use the latest registered scope. The injected node
+must support per-room sends (optional fourth `sendMessage` argument) and
+per-room leaves. `joinRoomAsync`, when present, gates early announcements.
+Only one real node is initialized, and room memberships are reference counted.
 
-### With any other transport
+## Preact settings and providing
 
-The services underneath take a plain send function, so no mesh node is involved:
+```tsx
+import { useState } from 'preact/hooks'
+import {
+  LlmSettings, useLlmConfig, useRoomProviders,
+  type LlmLocalSettings,
+} from '@tik-choco/mistai/preact'
+import '@tik-choco/mistai/ui.css'
+import { rooms } from './rooms'
 
-```ts
-import { ConsumerService, ProviderService, decode, encode } from '@tik-choco/mistai'
-
-// sending: put messages on your own transport
-const consumer = new ConsumerService((toId, msg) => room.sendTo(toId, encode(msg)))
-const provider = new ProviderService((toId, msg) => room.sendTo(toId, encode(msg)), callLlm)
-
-// receiving: decode bytes from the transport and dispatch
-room.onMessage((fromId, bytes) => {
-  const msg = decode(bytes)
-  if (!msg) return
-  consumer.handleMessage(msg)
-  void provider.handleMessage(fromId, msg)
-})
-```
-
-## API
-
-| Import | Contents |
-| --- | --- |
-| `@tik-choco/mistai` | Protocol, consumer/provider services, voice, OpenAI client, tunnel, node facade |
-| `@tik-choco/mistai/preact` | Hooks, status and log components, the shared settings screen |
-| `@tik-choco/mistai/llm-config` | The cross-app shared LLM configuration in localStorage |
-| `@tik-choco/mistai/identity` | DID delegation chains |
-
-Full listing in [`docs/api.md`](docs/api.md).
-
-## Localization
-
-Default messages are English, but every failure the library raises locally is a `MistaiError` with
-a stable `code`. Localize by mapping the code — never by matching the English text.
-
-```ts
-import { MESSAGES_JA, formatMistaiError, formatMistaiCode } from '@tik-choco/mistai'
-
-label = MESSAGES_JA.consumerPhase[status.phase]
-
-try {
-  await llmClient.requestChat(roomId, messages)
-} catch (err) {
-  showToast(formatMistaiError(err, MESSAGES_JA, 'Request failed.'))
+function Settings({ open, onClose }) {
+  const { config } = useLlmConfig()
+  const [local, setLocal] = useState<LlmLocalSettings>(() => ({
+    tasks: { summarize: { reasoningEffort: 'medium' } },
+    roomProvide: {}, recentModels: [],
+  }))
+  useRoomProviders({
+    config, roomProvide: local.roomProvide, consumers: rooms,
+    taskRefs: Object.values(local.tasks).map(task => task.ref),
+    settingsOpen: open,
+  })
+  return open ? <LlmSettings
+    tasks={[{ id: 'summarize', label: 'Summarize', reasoning: true }]}
+    localSettings={{ get: () => local, set: setLocal }}
+    voice={{ tts: {}, stt: {} }}
+    locale="ja"
+    onClose={onClose}
+  /> : null
 }
 ```
 
-`MESSAGES_EN` and `MESSAGES_JA` ship canonical wording for the consumer lifecycle, provider status
-and request log, plus one message per error code. For another language, supply your own
-`MistaiMessages` — the `errors` record is exhaustive over `MistaiErrorCode`, so a missing
-translation is a type error.
+Keep `useRoomProviders` mounted in the app shell, including when settings close.
+It runs a provider in every enabled room whose local `roomProvide[id].enabled`
+is true, and keeps consumers joined to rooms used by tasks, default or voice
+settings, or sharing. `settingsOpen` discovers other enabled rooms on demand.
+Removing, disabling or editing a room releases its old membership.
 
-One thing that cannot be localized: errors relayed from a remote peer carry code `REMOTE_ERROR`,
-and their text was authored by that provider in whatever language it runs in.
+The local adapter implements `get()` / `set(next)` and optionally `subscribe(cb)`.
+Persist these settings in the app's own storage; they are intentionally separate
+from the family-wide connection config. A task without `ref` follows the default.
+Reasoning values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`;
+`none` is an explicit API value. Recents are deduplicated and capped at eight.
 
-## Protocol
+`voice.tts` and `voice.stt` enable their rows; their optional `get`/`set` adapters
+override shared voice storage. `voice.tts.voiceOptions` supplies an HTTP voice-list
+fallback. Room voice choices use live advertisements, and `network-auto` asks
+that room's provider to choose its configured model. `mic` accepts `deviceId`,
+`onChange`, optional `devices`, `labelsHidden` and `onUnlockLabels`; the host owns
+device enumeration and permission requests.
 
-Fifteen message types over a `v: 1` wire format, wire compatible with the implementations this
-library was extracted from — old and new clients share a room. `decode()` trusts nothing and
-returns `null` for anything malformed.
+`headerSection` inserts app controls above the tabs. `extraSections` accepts
+content or a `(tab) => content` function below the current panel. Without
+`onClose`, the component is an inline settings panel. With it, the dialog is
+anchored at the top and guards backdrop dismissal by where a press began.
+Optional `config` / `onConfigChange` provide controlled shared config. If used,
+the host must persist changes with `saveLlmConfig` so catalog discovery sees them.
 
-- [`docs/protocol.md`](docs/protocol.md) — message reference, the OpenAI tunnel, transport
-  injection, and running several stacks on one node
-- [`docs/identity.md`](docs/identity.md) — DID delegation chains
+Built-in `locale` values: `en`, `ja`, `zh-CN`, `zh-TW`. `messages` overrides
+individual keys from `LLM_SETTINGS_MESSAGES`. Task labels/tips are host supplied.
+`npm test` and `npm run check:i18n` verify complete nonempty catalogs, no orphan
+keys, and matching placeholders. Theme with `--mistai-surface`,
+`--mistai-surface-2`, `--mistai-border`, `--mistai-border-strong`, `--mistai-text`,
+`--mistai-text-muted`, `--mistai-text-strong`, `--mistai-primary`,
+`--mistai-primary-soft`, `--mistai-focus`, `--mistai-focus-ring`,
+`--mistai-danger-text` and `--mistai-font-family` on a parent. Portals inherit
+the settings theme. Motion uses 120ms / 200ms and honors reduced-motion.
 
-## Status
+Each room advertises only raw model IDs from its enabled HTTP shared references.
+Room models cannot be re-shared. Duplicate IDs resolve to the first usable ref
+in list order. Named requests absent from a nonempty stored share list receive
+`model_not_shared`; an empty model uses the enabled HTTP default, otherwise the
+first usable shared ref. The OpenAI tunnel enforces the same model rules for
+`/chat/completions`, `/models` and `/embeddings`, removes temperature, and buffers
+chat responses. TTS/STT are advertised only with usable HTTP voice targets.
 
-In use by several browser apps in the same family, but the API is not frozen — minor versions still
-change it. Not published to npm; install from a git tag. The OpenAI tunnel does not stream in v1:
-the provider resolves a non-streaming upstream call and relays the response in one shot.
+For a non-Preact host, `new RoomProviderService({ config, roomProvide, consumers })`
+offers `update(options)`, `subscribe(cb)`, `states` and `destroy()`.
 
-## License
+## Migration from 0.8
 
-[Mozilla Public License 2.0](LICENSE)
+1. Replace `ModelPresetV1` task IDs with `ModelRefV1`. Run
+   `migrateSharedLlmConfig(config)` after loading and save **only if changed**.
+   This creates `defaultModel`, imports `network.roomId` as a room provider and
+   seeds manual HTTP preset IDs into caches. It is idempotent and leaves live
+   fetched caches alone. `useLlmConfig` performs this shared migration for you.
+2. Migrate app-local task refs with `presetIdToRef(config, oldId)`. Preserve each
+   task's effort, otherwise inherit its old preset's `reasoningEffort`. Retired
+   room mirror presets return undefined. Do this local migration once.
+3. Convert local shared-preset IDs into refs under
+   `roomProvide[roomProviderId].shared`; exclude room refs. Move the old local
+   `networkProviderEnabled` flag into that room's `enabled` flag. Keep recents
+   local. The key is the room **provider ID**, not the raw room ID.
+4. Replace `LlmConnectionPanel`, `LlmNetworkPanel`, `LlmTasksPanel`, old
+   preset adapters and preset CRUD/resolution/mirror helpers with `LlmSettings`
+   and the adapters above. Stop using mirror-sync code. Remove temperature.
+5. Initialize one shared node scope and `createRoomConsumers`. Replace the
+   single-room app singleton with the room helpers. Use `useRoomProviders` for
+   every providing room rather than one global provider switch.
+
+```ts
+const previous = config.presets.find(p => p.id === oldTask.presetId)
+const task = {
+  ref: presetIdToRef(config, oldTask.presetId),
+  reasoningEffort: oldTask.reasoningEffort ?? previous?.reasoningEffort ?? 'none',
+}
+```
+
+`presets`, `defaultPresetId` and `network` remain readable migration data and
+are written back unchanged by `saveLlmConfig`; unmigrated same-origin apps still
+need them. New code never changes them or silently rewrites dangling refs.
+The localStorage key and wire protocol remain v1; the library version is 0.9.0.
+
+## API and verification
+
+See the [API overview](docs/api.md) and the [complete exported API](docs/exports.md).
+Core protocol, low-level services, status components, generic provider hooks,
+OpenAI client and `/identity` remain available.
+
+```sh
+npm test
+npm run build
+npm run check:i18n
+npm run api:list
+```
+
+The transport is injected; unit tests use in-memory nodes. Real peer discovery
+and upstream availability depend on the host's transport and endpoints.
+
+Licensed under [MPL-2.0](LICENSE).

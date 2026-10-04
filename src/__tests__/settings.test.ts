@@ -1,322 +1,48 @@
-// Exercises the pure, exported TTS-voice-row logic from ../preact/settings.tsx
-// (resolveVoiceEngine / shouldShowTtsVoiceRow / resolveTtsVoiceOptions /
-// buildTtsVoiceOptionValues) per tts-voice-selection-v1 §2.4, plus the
-// Network-origin option/badge/filter logic backported from tc-translate's
-// SettingsModal.tsx/VoiceSettingsPanel.tsx (isNetworkPresetProviderId /
-// shouldFilterNetworkPresetOptions / visiblePresetOptions /
-// shouldShowNetworkVoiceSentinel / isNetworkSelection).
-//
-// This package has no jsdom/happy-dom dependency (see
-// preact-network-provider.test.ts's own comment on the hand-rolled
-// renderHook it uses instead), so rendering LlmTasksPanel's actual <select>
-// DOM and reading it back isn't available here. The component's
-// visibility/sourcing decisions were factored out into these standalone
-// functions specifically so they're testable without a DOM — LlmTasksPanel
-// calls the exact same functions, so this exercises the real logic, not a
-// parallel reimplementation of it.
-
-import { describe, expect, it } from "vitest";
-import {
-  buildTtsVoiceOptionValues,
-  isNetworkPresetProviderId,
-  isNetworkSelection,
-  resolveTtsVoiceOptions,
-  resolveVoiceEngine,
-  shouldFilterNetworkPresetOptions,
-  shouldShowNetworkVoiceSentinel,
-  shouldShowTtsVoiceRow,
-  visiblePresetOptions,
-} from "../preact/settings.js";
-import {
-  createPreset,
-  createProvider,
-  emptyLlmConfig,
-  networkProviderBaseUrl,
-  NETWORK_VOICE_AUTO_MODEL,
-  patchPreset,
-  patchProvider,
-  type SharedLlmConfigV1,
-} from "../llm-config.js";
-import type { ConsumerStatus } from "../client.js";
-import { OPENAI_TTS_VOICES } from "../openai.js";
-
-function configWithHttpProvider(): { config: SharedLlmConfigV1; providerId: string } {
-  const config = emptyLlmConfig();
-  const providerId = createProvider(config, "My Server");
-  patchProvider(config, providerId, { baseUrl: "https://api.example.com/v1", apiKey: "sk-test" });
-  const presetId = createPreset(config, providerId, "Default");
-  patchPreset(config, presetId, { model: "gpt-4o" });
-  config.defaultPresetId = presetId;
-  return { config, providerId };
-}
-
-function configWithNetworkProvider(): { config: SharedLlmConfigV1; providerId: string } {
-  const config = emptyLlmConfig();
-  const providerId = createProvider(config, "AI Network");
-  patchProvider(config, providerId, { baseUrl: networkProviderBaseUrl("room1") });
-  return { config, providerId };
-}
-
-describe("resolveVoiceEngine", () => {
-  it("resolves 'browser' when no model is set at all (cfg undefined), independent of what provider the default preset resolves to", () => {
-    const { config } = configWithHttpProvider();
-    expect(resolveVoiceEngine(config, undefined).engine).toBe("browser");
-  });
-
-  it("resolves 'browser' with no provider info at all when there's no default preset to fall back to either", () => {
-    const config = emptyLlmConfig();
-    expect(resolveVoiceEngine(config, undefined)).toEqual({ baseUrl: "", apiKey: "", engine: "browser" });
-  });
-
-  it("resolves 'browser' when cfg.model is blank", () => {
-    const { config } = configWithHttpProvider();
-    expect(resolveVoiceEngine(config, { model: "" }).engine).toBe("browser");
-  });
-
-  it("resolves 'api' for a model pointed at a regular HTTP provider", () => {
-    const { config, providerId } = configWithHttpProvider();
-    const result = resolveVoiceEngine(config, { providerId, model: "tts-1" });
-    expect(result).toEqual({ baseUrl: "https://api.example.com/v1", apiKey: "sk-test", engine: "api" });
-  });
-
-  it("resolves 'network' for a model pointed at the mist-network:// pseudo-provider", () => {
-    const { config, providerId } = configWithNetworkProvider();
-    const result = resolveVoiceEngine(config, { providerId, model: "some-advertised-preset" });
-    expect(result.engine).toBe("network");
-  });
-
-  it("resolves 'network' for the network-auto sentinel model too", () => {
-    const { config, providerId } = configWithNetworkProvider();
-    const result = resolveVoiceEngine(config, { providerId, model: NETWORK_VOICE_AUTO_MODEL });
-    expect(result.engine).toBe("network");
-  });
-
-  it("falls back to the default preset's provider when providerId is omitted", () => {
-    const { config } = configWithHttpProvider();
-    const result = resolveVoiceEngine(config, { model: "tts-1" });
-    expect(result).toEqual({ baseUrl: "https://api.example.com/v1", apiKey: "sk-test", engine: "api" });
-  });
-
-  it("resolves an empty baseUrl (still 'api', not 'network') when the provider can't be found at all", () => {
-    const config = emptyLlmConfig();
-    const result = resolveVoiceEngine(config, { providerId: "dangling", model: "tts-1" });
-    expect(result).toEqual({ baseUrl: "", apiKey: "", engine: "api" });
-  });
+// @vitest-environment happy-dom
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import { h, render } from 'preact';
+import { act } from 'preact/test-utils';
+import { ModelPicker, matchesModelQuery } from '../preact/ModelPicker.js';
+import { LlmSettings, buildTtsVoiceOptionValues, resolveTtsVoiceOptions } from '../preact/settings.js';
+import { emptyLlmConfig, createProvider, patchProvider, createRoomProvider, saveLlmConfig } from '../llm-config.js';
+import { createRoomConsumers } from '../rooms.js';
+import { createSharedNodeScope } from '../shared-node.js';
+import { FakeMistNode } from './fake-node.js';
+let container: HTMLDivElement;
+beforeEach(()=>{
+  localStorage.clear();container=document.createElement('div');document.body.append(container);createRoomConsumers(createSharedNodeScope(id=>new FakeMistNode(id)));
+  vi.stubGlobal('matchMedia',()=>({matches:true,addEventListener(){},removeEventListener(){}}));
+  vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});
+  HTMLElement.prototype.scrollIntoView=()=>{};
 });
-
-describe("shouldShowTtsVoiceRow", () => {
-  it("is false without a voice.tts adapter, regardless of engine", () => {
-    expect(shouldShowTtsVoiceRow(false, "api")).toBe(false);
-    expect(shouldShowTtsVoiceRow(false, "network")).toBe(false);
-    expect(shouldShowTtsVoiceRow(false, "browser")).toBe(false);
-  });
-
-  it("is false for the browser engine even with an adapter present", () => {
-    expect(shouldShowTtsVoiceRow(true, "browser")).toBe(false);
-  });
-
-  it("is true for the api engine with an adapter present", () => {
-    expect(shouldShowTtsVoiceRow(true, "api")).toBe(true);
-  });
-
-  it("is true for the network engine (including network-auto) with an adapter present — the §2.4 change: no longer hidden for the auto sentinel", () => {
-    expect(shouldShowTtsVoiceRow(true, "network")).toBe(true);
-  });
+afterEach(()=>{act(()=>render(null,container));container.remove();document.querySelectorAll('.model-picker-overlay').forEach(n=>n.remove());vi.unstubAllGlobals();});
+const click=(selector:string)=>act(()=>{const element=document.querySelector<HTMLButtonElement>(selector);expect(element,selector).not.toBeNull();element!.click();});
+function setup(){const config=emptyLlmConfig(),a=createProvider(config,'Alpha endpoint'),b=createProvider(config,'Disabled endpoint'),room=createRoomProvider(config,{roomId:'team',label:'Team'});patchProvider(config,a,{baseUrl:'https://a.test',models:['gem-raw',...Array.from({length:300},(_,i)=>`model-${i}`)],modelsFetchedAt:new Date().toISOString()});patchProvider(config,b,{baseUrl:'https://b.test',enabled:false,models:['disabled']});patchProvider(config,room.id,{models:['gem-raw'],modelsFetchedAt:new Date().toISOString()});config.defaultModel={providerId:a,model:'gem-raw'};saveLlmConfig(config);return {config,a,b,room};}
+it('two-pane picker renders every (provider, model) once, with assigned provider selected',()=>{
+  const {config,a}=setup(),assigned=config.defaultModel!;act(()=>render(h(ModelPicker,{providers:config.providers,value:assigned,recent:[assigned,assigned],label:'Pick',onChange:()=>{}}),container));click('.model-picker-trigger');expect(document.querySelector('.model-source[aria-selected="true"]')?.getAttribute('data-source-id')).toBe(a);expect(document.querySelectorAll('[data-model="gem-raw"]')).toHaveLength(1);expect(document.querySelectorAll('[data-model]')).toHaveLength(301);expect(document.querySelector('[data-source-id]')?.textContent).toContain('Recent');click('[data-source-id="recent"]');expect(document.querySelectorAll('[data-model]')).toHaveLength(1);expect(document.querySelector('.model-row-provider')?.textContent).toBe('Alpha endpoint');expect(document.querySelector('[data-model="disabled"]')).toBeNull();
 });
-
-describe("resolveTtsVoiceOptions", () => {
-  const connectedStatus = (voices?: string[]): ConsumerStatus => ({
-    phase: "connected",
-    providerId: "prov1",
-    providers: [{ id: "prov1", services: ["tts"], voices }],
-    ...(voices !== undefined ? { voices } : {}),
-  });
-
-  it("network: sources choices from consumerStatus.voices", () => {
-    const options = resolveTtsVoiceOptions({
-      engine: "network",
-      consumerStatus: connectedStatus(["alloy", "coral"]),
-      fetchedApiVoices: [],
-    });
-    expect(options).toEqual(["alloy", "coral"]);
-  });
-
-  it("network: is empty (not OPENAI_TTS_VOICES) when the room advertised no voices at all", () => {
-    const options = resolveTtsVoiceOptions({
-      engine: "network",
-      consumerStatus: connectedStatus(undefined),
-      fetchedApiVoices: [],
-      adapterVoiceOptions: ["should-not-appear"],
-    });
-    expect(options).toEqual([]);
-  });
-
-  it("network: is empty when not connected at all", () => {
-    const options = resolveTtsVoiceOptions({
-      engine: "network",
-      consumerStatus: { phase: "searching" },
-      fetchedApiVoices: [],
-    });
-    expect(options).toEqual([]);
-  });
-
-  it("network: is empty when consumerStatus is omitted entirely", () => {
-    expect(resolveTtsVoiceOptions({ engine: "network", fetchedApiVoices: [] })).toEqual([]);
-  });
-
-  it("api: prefers a non-empty fetched list over the adapter list and the static fallback", () => {
-    const options = resolveTtsVoiceOptions({
-      engine: "api",
-      fetchedApiVoices: ["kokoro-1", "kokoro-2"],
-      adapterVoiceOptions: ["adapter-voice"],
-    });
-    expect(options).toEqual(["kokoro-1", "kokoro-2"]);
-  });
-
-  it("api: falls back to the adapter-supplied list when the fetch came back empty", () => {
-    const options = resolveTtsVoiceOptions({
-      engine: "api",
-      fetchedApiVoices: [],
-      adapterVoiceOptions: ["adapter-voice"],
-    });
-    expect(options).toEqual(["adapter-voice"]);
-  });
-
-  it("api: falls back to OPENAI_TTS_VOICES when both the fetch and the adapter list are empty", () => {
-    const options = resolveTtsVoiceOptions({ engine: "api", fetchedApiVoices: [] });
-    expect(options).toEqual(OPENAI_TTS_VOICES);
-  });
-
-  it("browser: always empty", () => {
-    expect(
-      resolveTtsVoiceOptions({ engine: "browser", fetchedApiVoices: ["x"], adapterVoiceOptions: ["y"] }),
-    ).toEqual([]);
-  });
+it('AND search spans all providers, narrowing and clearing restores the original source; no manual row',()=>{
+  const {config,a,room}=setup();act(()=>render(h(ModelPicker,{providers:config.providers,value:config.defaultModel,recent:[config.defaultModel!],label:'Pick',onChange:()=>{}}),container));click('.model-picker-trigger');const input=document.querySelector<HTMLInputElement>('.model-picker-menu input')!;
+  const query=(value:string)=>act(()=>{input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));});query('gem');expect(document.querySelectorAll('[data-model="gem-raw"]')).toHaveLength(2);expect(document.querySelectorAll('.model-row-provider')).toHaveLength(0);click(`[data-source-id="${room.id}"]`);expect(document.querySelectorAll('[data-model]')).toHaveLength(1);query('');expect(document.querySelector('.model-source[aria-selected="true"]')?.getAttribute('data-source-id')).toBe(a);query('alpha gem');expect(document.querySelectorAll('[data-model]')).toHaveLength(1);query('missing');expect(document.querySelectorAll('[data-model]')).toHaveLength(0);expect(document.body.textContent).not.toMatch(/manually|Use.*missing/);expect(matchesModelQuery({providerId:a,model:'gem-raw'},config.providers[0],'GEM alpha')).toBe(true);
 });
-
-describe("buildTtsVoiceOptionValues", () => {
-  it("always starts with the '' provider-default sentinel", () => {
-    expect(buildTtsVoiceOptionValues([], "")[0]).toBe("");
-    expect(buildTtsVoiceOptionValues(["alloy"], "alloy")[0]).toBe("");
-  });
-
-  it("appends the current voice as an extra option when it isn't in the offered list", () => {
-    expect(buildTtsVoiceOptionValues(["alloy", "coral"], "stale-voice")).toEqual([
-      "",
-      "stale-voice",
-      "alloy",
-      "coral",
-    ]);
-  });
-
-  it("does not duplicate the current voice when it's already in the offered list", () => {
-    expect(buildTtsVoiceOptionValues(["alloy", "coral"], "alloy")).toEqual(["", "alloy", "coral"]);
-  });
-
-  it("adds no extra entry when there is no current voice (provider default selected)", () => {
-    expect(buildTtsVoiceOptionValues(["alloy", "coral"], "")).toEqual(["", "alloy", "coral"]);
-  });
+it('voice room auto sentinel stays out of chat recents; browser clear applies immediately',()=>{
+  const {config,room}=setup(),ref={providerId:room.id,model:'network-auto'},choose=vi.fn();act(()=>render(h(ModelPicker,{providers:config.providers,value:ref,recent:[ref],voice:true,clearLabel:'Browser',label:'Voice',onChange:choose}),container));click('.model-picker-trigger');expect(document.querySelector('[data-model="network-auto"]')).not.toBeNull();click('[data-source-id="clear"]');expect(choose).toHaveBeenCalledWith(undefined);expect(document.querySelector('.model-picker-menu')).toBeNull();act(()=>render(h(ModelPicker,{providers:config.providers,recent:[ref],label:'Chat',onChange:choose}),container));click('.model-picker-trigger');expect(document.querySelector('[data-model="network-auto"]')).toBeNull();
 });
-
-/** A config with one regular HTTP preset and one Network-origin (`mist-network://`) preset, for exercising the option-class/filter/badge logic below. */
-function configWithHttpAndNetworkPresets(): {
-  config: SharedLlmConfigV1;
-  httpPresetId: string;
-  networkPresetId: string;
-} {
-  const { config, providerId: httpProviderId } = configWithHttpProvider();
-  const httpPresetId = config.presets.find((preset) => preset.providerId === httpProviderId)!.id;
-
-  const networkProviderId = createProvider(config, "AI Network");
-  patchProvider(config, networkProviderId, { baseUrl: networkProviderBaseUrl("room1") });
-  const networkPresetId = createPreset(config, networkProviderId, "Room Model");
-  patchPreset(config, networkPresetId, { model: "room-model" });
-
-  return { config, httpPresetId, networkPresetId };
-}
-
-describe("isNetworkPresetProviderId", () => {
-  it("is false for a regular HTTP provider", () => {
-    const { config, providerId } = configWithHttpProvider();
-    expect(isNetworkPresetProviderId(config, providerId)).toBe(false);
-  });
-
-  it("is true for a mist-network:// pseudo-provider", () => {
-    const { config, providerId } = configWithNetworkProvider();
-    expect(isNetworkPresetProviderId(config, providerId)).toBe(true);
-  });
-
-  it("is false for an unknown/dangling providerId", () => {
-    const config = emptyLlmConfig();
-    expect(isNetworkPresetProviderId(config, "dangling")).toBe(false);
-    expect(isNetworkPresetProviderId(config, "")).toBe(false);
-  });
+it('search Down/Enter selects, Escape closes and restores trigger focus',()=>{
+  const {config}=setup(),choose=vi.fn();act(()=>render(h(ModelPicker,{providers:config.providers,value:config.defaultModel,recent:[],label:'Pick',onChange:choose}),container));click('.model-picker-trigger');const input=document.querySelector('input')!;act(()=>{input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));});act(()=>{document.querySelector('.model-picker-results')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));});expect(choose).toHaveBeenCalledWith(config.defaultModel);expect(document.activeElement?.className).toContain('model-picker-trigger');click('.model-picker-trigger');act(()=>document.querySelector('.model-picker-menu')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));expect(document.querySelector('.model-picker-menu')).toBeNull();
 });
-
-describe("shouldFilterNetworkPresetOptions", () => {
-  it("is false when consumerStatus is omitted entirely (app can't report connection state)", () => {
-    expect(shouldFilterNetworkPresetOptions(undefined)).toBe(false);
-  });
-
-  it("is false when connected", () => {
-    expect(shouldFilterNetworkPresetOptions({ phase: "connected", providerId: "prov1", providers: [] })).toBe(false);
-  });
-
-  it("is true when supplied but not connected", () => {
-    expect(shouldFilterNetworkPresetOptions({ phase: "searching" })).toBe(true);
-    expect(shouldFilterNetworkPresetOptions({ phase: "disconnected" } as ConsumerStatus)).toBe(true);
-  });
+it('three tabs mount app-defined tasks, reasoning, voice and mic adapters',()=>{
+  setup();let local={tasks:{summarize:{reasoningEffort:'none' as const}},roomProvide:{},recentModels:[]};act(()=>render(h(LlmSettings,{tasks:[{id:'summarize',label:'Summarize',reasoning:true}],localSettings:{get:()=>local,set:next=>{local=next as typeof local;}},voice:{tts:{},stt:{}},mic:{deviceId:'',onChange:()=>{}},locale:'ja'}),container));expect(document.querySelectorAll('[role="tab"]')).toHaveLength(3);click('[role="tab"]:nth-of-type(2)');expect(document.querySelector('[data-picker-name="summarize"]')).not.toBeNull();click('.reasoning-trigger');expect(document.querySelectorAll('.reasoning-option')).toHaveLength(7);click('[data-value="max"]');expect(local.tasks.summarize.reasoningEffort).toBe('max');expect(document.querySelector('.mic-picker')).not.toBeNull();
 });
-
-describe("visiblePresetOptions", () => {
-  it("returns every preset unchanged when filterNetwork is false", () => {
-    const { config, httpPresetId, networkPresetId } = configWithHttpAndNetworkPresets();
-    const ids = visiblePresetOptions(config, config.presets, false).map((preset) => preset.id);
-    expect(ids).toEqual(expect.arrayContaining([httpPresetId, networkPresetId]));
-    expect(ids).toHaveLength(config.presets.length);
-  });
-
-  it("hides Network-origin presets when filterNetwork is true and none is the kept/current selection", () => {
-    const { config, httpPresetId, networkPresetId } = configWithHttpAndNetworkPresets();
-    const ids = visiblePresetOptions(config, config.presets, true).map((preset) => preset.id);
-    expect(ids).toContain(httpPresetId);
-    expect(ids).not.toContain(networkPresetId);
-  });
-
-  it("keeps a Network-origin preset visible when it is the current selection (keepPresetId), even while filtering", () => {
-    const { config, httpPresetId, networkPresetId } = configWithHttpAndNetworkPresets();
-    const ids = visiblePresetOptions(config, config.presets, true, networkPresetId).map((preset) => preset.id);
-    expect(ids).toEqual(expect.arrayContaining([httpPresetId, networkPresetId]));
-    expect(ids).toHaveLength(config.presets.length);
-  });
+it('inline fields commit on blur, Escape reverts, and invalid endpoints stay unsaved',()=>{
+  const {a}=setup();const local={tasks:{},roomProvide:{},recentModels:[]};act(()=>render(h(LlmSettings,{tasks:[],localSettings:{get:()=>local,set:()=>{}},locale:'en'}),container));click(`[data-provider-id="${a}"] .provider-card-summary`);const inputs=document.querySelectorAll<HTMLInputElement>('.provider-card-body input');act(()=>{inputs[0].value='Renamed';inputs[0].dispatchEvent(new Event('input',{bubbles:true}));inputs[0].focus();inputs[0].blur();});expect(document.querySelector('.provider-card-summary strong')?.textContent).toBe('Renamed');act(()=>{inputs[0].value='Discard';inputs[0].dispatchEvent(new Event('input',{bubbles:true}));inputs[0].dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));});expect(document.querySelector('.provider-card-summary strong')?.textContent).toBe('Renamed');act(()=>{inputs[1].value='invalid';inputs[1].dispatchEvent(new Event('input',{bubbles:true}));inputs[1].focus();inputs[1].blur();});expect(document.querySelector('.provider-field input[aria-invalid="true"]')).not.toBeNull();
 });
-
-describe("shouldShowNetworkVoiceSentinel", () => {
-  it("is false when no Network voice provider has been imported at all", () => {
-    expect(shouldShowNetworkVoiceSentinel(false, false, false)).toBe(false);
-    expect(shouldShowNetworkVoiceSentinel(false, true, true)).toBe(false);
-  });
-
-  it("is true when a provider exists and the filter is off", () => {
-    expect(shouldShowNetworkVoiceSentinel(true, false, false)).toBe(true);
-  });
-
-  it("is hidden by the disconnected filter unless it is the row's current selection", () => {
-    expect(shouldShowNetworkVoiceSentinel(true, true, false)).toBe(false);
-    expect(shouldShowNetworkVoiceSentinel(true, true, true)).toBe(true);
-  });
+it('add popup validates URL and duplicate room, offers existing room and keeps name when toggled',()=>{
+  setup();const local={tasks:{},roomProvide:{},recentModels:[]};act(()=>render(h(LlmSettings,{tasks:[],localSettings:{get:()=>local,set:()=>{}},locale:'en'}),container));click('.connection-add-button');const name=document.querySelector<HTMLInputElement>('.connection-name')!;act(()=>{name.value='Kept name';name.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});expect(document.querySelector('.connection-popup [role="alert"]')?.textContent).toContain('HTTP');click('.connection-kind-toggle [role="tab"]:nth-of-type(2)');expect(document.querySelector<HTMLInputElement>('.connection-name')?.value).toBe('Kept name');act(()=>{const input=document.querySelector<HTMLInputElement>('.connection-room-id')!;input.value='team';input.dispatchEvent(new Event('input',{bubbles:true}));});act(()=>{document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});expect(document.querySelector('.connection-use-existing')).not.toBeNull();expect(document.querySelectorAll('.provider-card')).toHaveLength(3);click('.connection-use-existing');expect(document.querySelector('.connection-popup')).toBeNull();
 });
-
-describe("isNetworkSelection", () => {
-  it("is true for the network-auto sentinel selection", () => {
-    expect(isNetworkSelection(true, false)).toBe(true);
-  });
-
-  it("is true when the matched preset is Network-origin", () => {
-    expect(isNetworkSelection(false, true)).toBe(true);
-  });
-
-  it("is false for a plain non-network selection", () => {
-    expect(isNetworkSelection(false, false)).toBe(false);
-  });
+it('press originating in a popup cannot dismiss settings when released on the backdrop',()=>{
+  setup();const close=vi.fn(),local={tasks:{},roomProvide:{},recentModels:[]};act(()=>render(h(LlmSettings,{tasks:[],localSettings:{get:()=>local,set:()=>{}},onClose:close}),container));click('.connection-add-button');const popup=document.querySelector('.connection-popup')!,layer=document.querySelector('.mistai-settings-layer')!;act(()=>{popup.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));layer.dispatchEvent(new MouseEvent('click',{bubbles:true}));});expect(close).not.toHaveBeenCalled();expect(document.querySelector('.connection-popup')).not.toBeNull();act(()=>{layer.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));layer.dispatchEvent(new MouseEvent('click',{bubbles:true}));});expect(close).toHaveBeenCalledTimes(1);
+});
+it('voice options retain configured values and network uses only advertised voices',()=>{
+  expect(buildTtsVoiceOptionValues(['voice-a'],'saved')).toEqual(['','saved','voice-a']);expect(resolveTtsVoiceOptions({engine:'network',fetchedApiVoices:['http']})).toEqual([]);expect(resolveTtsVoiceOptions({engine:'api',fetchedApiVoices:[],adapterVoiceOptions:['custom']})).toEqual(['custom']);
 });

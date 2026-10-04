@@ -520,7 +520,7 @@ export class OaiTunnelProvider {
         type: "oai_error",
         id,
         message: err instanceof Error ? err.message : "The provider rejected the request.",
-        code: "request_rejected",
+        code: err instanceof Error && err.message === 'model_not_shared' ? 'model_not_shared' : 'request_rejected',
       });
       return;
     }

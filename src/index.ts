@@ -62,3 +62,6 @@ export {
 } from "./tunnel.js";
 
 export { createSharedNodeScope } from "./shared-node.js";
+export * from './rooms.js';
+export * from './model-catalog.js';
+export * from './room-provider.js';

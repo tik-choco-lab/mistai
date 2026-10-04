@@ -9,7 +9,7 @@ export class FakeMistNode implements MistNodeLike {
   leaveCount = 0;
   /** Every `roomId` (or `undefined` for an argless call) passed to leaveRoom(), in call order. */
   leftRooms: (string | undefined)[] = [];
-  sent: { toId: string | null | undefined; payload: Uint8Array; delivery?: number }[] = [];
+  sent: { toId: string | null | undefined; payload: Uint8Array; delivery?: number; roomId?: string }[] = [];
 
   constructor(public readonly nodeId: string) {}
 
@@ -28,8 +28,8 @@ export class FakeMistNode implements MistNodeLike {
     this.leftRooms.push(roomId);
   }
 
-  sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: number): void {
-    this.sent.push({ toId, payload, delivery });
+  sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: number, roomId?: string): void {
+    this.sent.push({ toId, payload, delivery, roomId });
   }
 
   /**

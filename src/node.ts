@@ -25,7 +25,9 @@ export interface MistNodeLike {
    * happened in; single-room callers (like `Network` below) can ignore it.
    */
   onEvent(handler: (eventType: number, fromId: string, payload: unknown, roomId?: string) => void): void;
-  joinRoom(roomId: string): void;
+  joinRoom(roomId: string): void | Promise<void>;
+  /** Optional async room readiness API exposed by mistlib's web wrapper. */
+  joinRoomAsync?(roomId: string): Promise<void>;
   /**
    * Leaves a room. `roomId` is optional so single-room implementations (the
    * original shape of this interface) still satisfy it structurally; a
@@ -33,7 +35,7 @@ export interface MistNodeLike {
    * that room" and no-arg as "leave everything this handle joined".
    */
   leaveRoom(roomId?: string): void;
-  sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: number): void;
+  sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: number, roomId?: string): void;
 }
 
 export interface NetworkCallbacks {
@@ -113,7 +115,7 @@ export class Network {
 
     this.node = node;
     this.roomId = roomId;
-    node.joinRoom(roomId);
+    await node.joinRoom(roomId);
   }
 
   send(toId: string | null, msg: ProtocolMessage): void {
