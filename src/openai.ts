@@ -12,7 +12,6 @@ export interface OpenAIConfig {
   baseUrl: string;
   apiKey: string;
   model?: string;
-  temperature?: number;
   reasoningEffort?: string;
 }
 
@@ -43,7 +42,6 @@ export async function streamChatCompletion(
         model: config.model,
         messages,
         stream: true,
-        ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
         ...(config.reasoningEffort !== undefined ? { reasoning_effort: config.reasoningEffort } : {}),
       }),
     });

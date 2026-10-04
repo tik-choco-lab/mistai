@@ -16,11 +16,17 @@ export {
   type ProviderPeerInfo,
 } from "./ui.js";
 
-// Shared 3-tab LLM settings UI (AI Connection / AI Network / Tasks) — apps
+// Shared 3-tab LLM settings UI (Connections / Tasks / Sharing) — apps
 // supply task definitions + small adapters and get the family-common
 // settings screens; the shared llm config itself is managed internally via
 // "../llm-config.js".
 export * from "./settings.js";
+export { useLlmConfig, useModelCatalog } from './hooks.js';
+export { useRoomProviders, type UseRoomProvidersOptions } from './room-providers.js';
+export { ModelPicker, matchesModelQuery, sameModel, modelKey } from './ModelPicker.js';
+export { TwoPaneModelPicker } from './TwoPaneModelPicker.js';
+export { ReasoningPicker } from './ReasoningPicker.js';
+export { ChoicePicker } from './ChoicePicker.js';
 
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ConsumerClient, type ConsumerStatus } from "../client.js";
