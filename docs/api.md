@@ -1,4 +1,4 @@
-# API reference (0.9.0)
+# API reference (0.9.1)
 
 The [complete exported value/type list](exports.md) is generated from the public
 TypeScript entry points. See [README](../README.md) for usage and 0.8 migration.
@@ -34,15 +34,48 @@ New room consumers:
   the default scope for the top-level helpers. Use the same factory from
   `createSharedNodeScope` for all stacks.
 - `roomConsumer(roomId)`, `disconnectRoom(roomId)`.
-- `requestRoomChat(roomId, messages, model?, onDelta?)`.
+- `requestRoomChat(roomId: string, messages: ChatMessage[], options?: RoomChatOptions): Promise<string>`:
+  the helper apps should use for streaming room chat. Options are
+  `{ model?: string; reasoningEffort?: string; onDelta?: (delta: string, full: string) => void }`.
+  Sends `llm_request`; invokes `onDelta` with each fragment and accumulated text,
+  then resolves with the full reply. The scoped method has the same API.
+  Legacy positional `(roomId, messages, model?, onDelta?)` calls still work.
 - `requestRoomTts(roomId, { text, model?, voice?, lang? })`.
 - `requestRoomStt(roomId, { audio, model?, fileName? })`.
 - `requestRoomOpenAi(roomId, { path, method?, contentType?, body? })`.
+
+**Routing rule: room chat -> `llm_request` (streaming); oai tunnel only for
+vision/OCR image content parts, `/models`, `/embeddings`.** Use the chat helper
+with the task's effort rather than tunneling text chat to preserve effort.
+
+`ConsumerClient.requestChat(roomId, messages, { model?, reasoningEffort?, onDelta? })`
+and `ConsumerService.request(providerId, messages, { model?, reasoningEffort?, onDelta?, timeoutMs? })`
+send optional `llm_request.reasoning_effort`. Wire v1 is unchanged. Known values
+are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; all strings,
+including unknown future values, pass through unchanged. Invalid non-string
+wire values drop only the optional field. A present value overrides the provider
+default; an omitted value uses the default. Old providers ignore the field and
+keep streaming, but cannot apply the requested effort.
+
+```ts
+const answer = await requestRoomChat(roomId, messages, {
+  model: task.ref.model,
+  reasoningEffort: task.reasoningEffort,
+  onDelta: (delta, full) => updateReply(full),
+})
+```
 
 New provider:
 
 - `RoomProviderService({ config, roomProvide, consumers?, reasoningEffort?,
   maxLogEntries? })`: `update(options)`, `subscribe(cb)`, `states`, `destroy()`.
+  Request effort is forwarded upstream as `reasoning_effort`; its absence uses
+  the service's current `reasoningEffort` default (including after `update`).
+- `ProviderService(send, callLlm, { reasoningEffort?, onRequestLog?, maxLogEntries? })`:
+  invokes `LlmCallFn(messages, model, onDelta, reasoningEffort?)` with the request's
+  effort or the configured default. Pass it into `streamChatCompletion`'s config
+  to forward upstream. Existing three-argument callbacks still work; callbacks
+  may retain their own default when the fourth argument is undefined.
 - `resolveSharedTargets(config, refs)`: enabled HTTP refs only.
 - `inboundTarget(config, shared, model?)`: raw-ID matching in list order; rejects
   named requests outside a nonempty shared list with `model_not_shared`. Empty

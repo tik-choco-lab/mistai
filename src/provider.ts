@@ -13,6 +13,8 @@ export type LlmCallFn = (
   messages: ChatMessage[],
   model: string | undefined,
   onDelta: (delta: string) => void,
+  /** Request effort (or provider default). Three-argument handlers remain compatible. */
+  reasoningEffort?: string,
 ) => Promise<string>;
 
 export type SendFn = (toId: string, msg: ProtocolMessage) => void;
@@ -30,6 +32,8 @@ export interface ProviderLogEntry {
 }
 
 export interface ProviderLogOptions {
+  /** Default effort for requests from consumers that omit reasoning_effort. */
+  reasoningEffort?: string;
   onRequestLog?: (entry: ProviderLogEntry) => void;
   /** Max number of log entries retained; oldest are dropped first. Defaults to 50. */
   maxLogEntries?: number;
@@ -93,7 +97,7 @@ export class ProviderService {
         charCount += delta.length;
         this.pushLog({ ...entry, status: "streaming", charCount });
         this.send(fromId, { v: 1, type: "llm_response_chunk", id: msg.id, delta, seq: seq++ });
-      });
+      }, msg.reasoning_effort ?? this.options.reasoningEffort);
       this.send(fromId, { v: 1, type: "llm_response_done", id: msg.id, content });
       this.pushLog({ ...entry, status: "done", charCount: content.length });
     } catch (err) {

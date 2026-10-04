@@ -108,10 +108,10 @@ export class RoomProviderService {
       },
     } });
     const send = (to: string, msg: Parameters<Network['send']>[1]) => network.send(to, msg);
-    const chat = new ProviderService(send, (messages, model, onDelta) => {
+    const chat = new ProviderService(send, (messages, model, onDelta, reasoningEffort) => {
       const target = inboundTarget(this.options.config, this.shared(id), model);
       if (!target) throw new Error('No usable HTTP model configured.');
-      return streamChatCompletion({ ...target, reasoningEffort: this.options.reasoningEffort }, messages, onDelta);
+      return streamChatCompletion({ ...target, reasoningEffort: reasoningEffort ?? this.options.reasoningEffort }, messages, onDelta);
     }, { onRequestLog: log });
     const voice = new VoiceProviderService(send, async (text, _model, voice) => {
       const target = this.voiceTarget('tts'); if (!target) throw new Error('No HTTP TTS model configured.');

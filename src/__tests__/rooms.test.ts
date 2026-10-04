@@ -34,3 +34,32 @@ it('provides independently in two rooms, rebroadcasts raw ids without rejoining,
   node.emit(EVENT_RAW,'remote',encode({v:1,type:'llm_request',id:'bad',model:'unknown',messages:[{role:'user',content:'hi'}]}),'team');await flushMicrotasks();expect(node.sentMessages().find(s=>s.msg?.type==='llm_error')?.msg).toMatchObject({code:'model_not_shared'});
   const next={...roomProvide,[room.id]:{enabled:true,shared:[{providerId:b,model:'changed'}]}};manager.update({config,roomProvide:next,consumers});expect(node.joinedRooms).toEqual(['team','other']);expect(node.sentMessages().at(-1)?.msg).toMatchObject({type:'provider_hello',models:['changed']});patchProvider(config,room.id,{enabled:false});manager.update({config,roomProvide:next,consumers});expect(node.leftRooms).toEqual(['team']);expect(Object.keys(manager.states)).toEqual([room2.id]);manager.destroy();expect(node.leftRooms).toEqual(['team','other']);
 });
+
+it('forwards task effort upstream with streaming, using the live provider default for old consumers',async()=>{
+  const {config,room,shared}=setup(),node=new FakeMistNode('provider'),consumers=createRoomConsumers(createSharedNodeScope(()=>node));
+  const roomProvide={ [room.id]:{enabled:true,shared} };
+  const fetchFn=vi.fn(async()=>new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}}));
+  vi.stubGlobal('fetch',fetchFn);
+  const manager=new RoomProviderService({config,roomProvide,consumers,reasoningEffort:'medium'});
+  try {
+    await flushMicrotasks();
+    for(const [index,effort] of ['none','high','future-effort','',undefined].entries()) {
+      const id=`effort-${index}`;
+      node.emit(EVENT_RAW,'consumer',encode({v:1,type:'llm_request',id,model:'raw',messages:[{role:'user',content:'hi'}],...(effort!==undefined?{reasoning_effort:effort}:{})}),'team');
+      await vi.waitFor(()=>expect(node.sentMessages().find(sent=>sent.msg?.type==='llm_response_done'&&sent.msg.id===id)).toBeDefined());
+      const [url,init]=fetchFn.mock.calls.at(-1)! as unknown as [string,RequestInit];
+      expect(url).toBe('https://b.test/v1/chat/completions');
+      expect(JSON.parse(init.body as string)).toEqual({model:'raw',messages:[{role:'user',content:'hi'}],stream:true,reasoning_effort:effort??'medium'});
+      const replies=node.sentMessages().filter(sent=>'id' in (sent.msg??{})&&(sent.msg as {id:string}).id===id).map(sent=>sent.msg);
+      expect(replies).toEqual([{v:1,type:'llm_response_chunk',id,delta:'ok',seq:0},{v:1,type:'llm_response_done',id,content:'ok'}]);
+    }
+    manager.update({config,roomProvide,consumers,reasoningEffort:'low'});
+    node.emit(EVENT_RAW,'consumer',encode({v:1,type:'llm_request',id:'updated',messages:[{role:'user',content:'hi'}]}),'team');
+    await vi.waitFor(()=>expect(node.sentMessages().find(sent=>sent.msg?.type==='llm_response_done'&&sent.msg.id==='updated')).toBeDefined());
+    expect(JSON.parse((fetchFn.mock.calls.at(-1)! as unknown as [string,RequestInit])[1].body as string).reasoning_effort).toBe('low');
+    manager.update({config,roomProvide,consumers});
+    node.emit(EVENT_RAW,'consumer',encode({v:1,type:'llm_request',id:'no-default',messages:[{role:'user',content:'hi'}]}),'team');
+    await vi.waitFor(()=>expect(node.sentMessages().find(sent=>sent.msg?.type==='llm_response_done'&&sent.msg.id==='no-default')).toBeDefined());
+    expect(JSON.parse((fetchFn.mock.calls.at(-1)! as unknown as [string,RequestInit])[1].body as string)).not.toHaveProperty('reasoning_effort');
+  } finally {manager.destroy();}
+});
