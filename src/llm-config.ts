@@ -275,8 +275,10 @@ export function setVoiceConfig(
   next: VoiceConfigV1,
 ): void {
   const previous = config[kind]
+  // An explicit `speed: undefined` clears it; omitting the key keeps the stored speed.
+  const speed = 'speed' in next ? next.speed : previous?.speed
   config[kind] = {
-    ...((next.speed ?? previous?.speed) !== undefined ? { speed: next.speed ?? previous?.speed } : {}),
+    ...(speed !== undefined ? { speed } : {}),
     ...(next.providerId ? { providerId: next.providerId } : {}),
     model: next.model,
     ...(next.voice ? { voice: next.voice } : {}),

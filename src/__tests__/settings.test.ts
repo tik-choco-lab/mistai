@@ -47,29 +47,29 @@ it('voice options retain configured values and network uses only advertised voic
   expect(buildTtsVoiceOptionValues(['voice-a'],'saved')).toEqual(['','saved','voice-a']);expect(resolveTtsVoiceOptions({engine:'network',fetchedApiVoices:['http']})).toEqual([]);expect(resolveTtsVoiceOptions({engine:'api',fetchedApiVoices:[],adapterVoiceOptions:['custom']})).toEqual(['custom']);
 });
 
-it('Tasks TTS speed persists to shared config, preserving voice fields and ignoring invalid values', () => {
+it('Tasks TTS speed is a choice picker persisting to shared config; provider default clears it', () => {
   const { config, a } = setup();
-  config.tts = { providerId: a, model: '', voice: 'saved', speed: 1.25 };
+  config.tts = { providerId: a, model: '', voice: 'saved', speed: 1.1 };
   saveLlmConfig(config);
   const local = { tasks: {}, roomProvide: {}, recentModels: [] };
   act(() => render(h(LlmSettings, { tasks: [], initialTab: 'tasks', voice: { tts: {} }, localSettings: { get: () => local, set: () => {} } }), container));
-  const input = document.querySelector<HTMLInputElement>('[name="tts-speed"]')!;
-  expect(input.value).toBe('1.25');
-  expect(input.min).toBe('0.25');
-  expect(input.max).toBe('4');
-  const change = (value: string) => act(() => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); });
-  change('2');
+  expect(document.querySelector('[name="tts-speed"]')).toBeNull();
+  expect(document.querySelector('.tts-speed-picker .model-trigger-text')?.textContent).toBe('1.1×');
+  click('.tts-speed-picker .choice-trigger');
+  expect([...document.querySelectorAll('.reasoning-option')].map(o => o.getAttribute('data-value'))).toEqual(['', '0.75', '1', '1.1', '1.25', '1.5', '2']);
+  click('.reasoning-option[data-value="2"]');
   expect(JSON.parse(localStorage.getItem('tc-shared-llm-config-v1')!).tts).toEqual({ providerId: a, model: '', voice: 'saved', speed: 2 });
-  for (const invalid of ['0.2', '5', '']) change(invalid);
-  expect(JSON.parse(localStorage.getItem('tc-shared-llm-config-v1')!).tts.speed).toBe(2);
+  click('.tts-speed-picker .choice-trigger');
+  click('.reasoning-option[data-value=""]');
+  expect(JSON.parse(localStorage.getItem('tc-shared-llm-config-v1')!).tts).toEqual({ providerId: a, model: '', voice: 'saved' });
 });
 
 it('Tasks TTS speed uses the voice adapter when supplied', () => {
   setup();
   const local = { tasks: {}, roomProvide: {}, recentModels: [] }, set = vi.fn();
   act(() => render(h(LlmSettings, { tasks: [], initialTab: 'tasks', voice: { tts: { get: () => ({ model: '', voice: 'saved', speed: 1.5 }), set } }, localSettings: { get: () => local, set: () => {} } }), container));
-  const input = document.querySelector<HTMLInputElement>('[name="tts-speed"]')!;
-  expect(input.value).toBe('1.5');
-  act(() => { input.value = '0.25'; input.dispatchEvent(new Event('input', { bubbles: true })); });
-  expect(set).toHaveBeenCalledWith({ model: '', voice: 'saved', speed: 0.25 });
+  expect(document.querySelector('.tts-speed-picker .model-trigger-text')?.textContent).toBe('1.5×');
+  click('.tts-speed-picker .choice-trigger');
+  click('.reasoning-option[data-value="0.75"]');
+  expect(set).toHaveBeenCalledWith({ model: '', voice: 'saved', speed: 0.75 });
 });

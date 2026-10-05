@@ -76,6 +76,12 @@ function ProviderCard({ provider, update, remove }: { provider: LlmProviderV1; u
       <div class="provider-card-actions"><button type="button" class="danger-button" onClick={() => { if (confirm(t('provider-delete-confirm'))) remove(); }}>{t('provider-delete')}</button></div>
     </div></AnimatedDisclosure></article>;
 }
+// Speed presets for the TTS row; '' is the provider default (no speed sent). A stored custom value stays selectable.
+const TTS_SPEEDS = [0.75, 1, 1.25, 1.5, 2];
+function ttsSpeedOptions(current?: number): string[] {
+  const speeds = isTtsSpeed(current) && !TTS_SPEEDS.includes(current) ? [...TTS_SPEEDS, current].sort((a, b) => a - b) : TTS_SPEEDS;
+  return ['', ...speeds.map(String)];
+}
 function VoiceRows({ config, voice, mic, recent, saveVoice, remember }: { config: SharedLlmConfigV1; voice?: LlmSettingsVoiceAdapter; mic?: LlmSettingsMicAdapter; recent: ModelRefV1[]; saveVoice(kind: 'tts' | 'stt', value: VoiceConfigV1): void; remember(ref?: ModelRefV1): void }) {
   const { t } = useSettingsI18n(), statuses = useLiveModels(config.providers);
   const tts = voice?.tts?.get?.() ?? config.tts, provider = config.providers.find(p => p.id === (tts?.providerId ?? config.defaultModel?.providerId));
@@ -93,10 +99,7 @@ function VoiceRows({ config, voice, mic, recent, saveVoice, remember }: { config
     const value = voice[kind]?.get?.() ?? config[kind];
     return <><div class="provider-task-row"><span data-tip={t(`voice-${kind}-tip`)}>{t(`voice-${kind}-heading`)}</span><ModelPicker providers={config.providers} recent={recent} label={t(`voice-${kind}-model-label`)} voice clearLabel={t('voice-model-browser-option')} value={value?.model ? { providerId: value.providerId ?? config.defaultModel?.providerId ?? '', model: value.model } : undefined} onChange={ref => { saveVoice(kind, { ...value, providerId: ref?.providerId, model: ref?.model ?? '' }); remember(ref); }} /></div>
       {kind === 'tts' && engine !== 'browser' && <div class="provider-task-row"><span>{t('voice-tts-voice-label')}</span><ChoicePicker label={t('voice-tts-voice-label')} value={tts?.voice ?? ''} options={voices.map(value => ({ value, label: value || t('voice-provider-default-option') }))} onChange={value => saveVoice('tts', { ...tts, model: tts?.model ?? '', voice: value })} /></div>}
-      {kind === 'tts' && <label class="provider-task-row provider-field"><span>{t('voice-tts-speed-label')}</span><span class="provider-field-control"><input name="tts-speed" type="number" min="0.25" max="4" step="0.05" value={tts?.speed ?? 1} onInput={event => {
-        const speed = event.currentTarget.valueAsNumber;
-        if (isTtsSpeed(speed)) saveVoice('tts', { ...tts, model: tts?.model ?? '', speed });
-      }} /></span></label>}</>;
+      {kind === 'tts' && <div class="provider-task-row"><span>{t('voice-tts-speed-label')}</span><ChoicePicker className="tts-speed-picker" label={t('voice-tts-speed-label')} value={isTtsSpeed(tts?.speed) ? String(tts.speed) : ''} options={ttsSpeedOptions(tts?.speed).map(value => ({ value, label: value ? `${value}×` : t('voice-provider-default-option') }))} onChange={value => saveVoice('tts', { ...tts, model: tts?.model ?? '', speed: value ? Number(value) : undefined })} /></div>}</>;
   })}{mic && <div class="provider-task-row"><span>{t('voice-mic-label')}</span><ChoicePicker className="mic-picker" label={t('voice-mic-label')} value={mic.deviceId} options={[{ value: '', label: t('voice-mic-default-option') }, ...(mic.devices ?? []).map((device, index) => ({ value: device.deviceId, label: device.label || t('voice-mic-fallback-label', { index: index + 1 }) }))]} onChange={mic.onChange} /></div>}{mic?.labelsHidden && <p class="hint">{t('voice-mic-permission-hint')} <button class="link-button" onClick={() => void mic.onUnlockLabels?.()}>{t('voice-mic-permission-button')}</button></p>}</>;
 }
 export function LlmSettings(props: LlmSettingsProps) {
