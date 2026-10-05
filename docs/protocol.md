@@ -27,7 +27,7 @@ The wire format, the OpenAI tunnel, and how a transport gets injected.
 | `llm_response_done` | provider → consumer | `id`, optional `content` (falls back to the consumer's accumulated deltas) |
 | `llm_error` | provider → consumer | `id`, `message` |
 | `raft_message` | consumer ⇔ consumer | opaque scheduler payload (base64 bincode); passed through untouched at this layer |
-| `tts_request` | consumer → provider | `id`, `text` (≤ 4000 chars), optional `model` / `voice` / `lang` |
+| `tts_request` | consumer → provider | `id`, `text` (≤ 4000 chars), optional `model` / `voice` / `lang` / `speed` / `response_format` |
 | `tts_response` | provider → consumer | `id`, `seq`, `data` (base64 sub-chunk), `last`, `mime` |
 | `stt_request` | consumer → provider | `id`, `seq`, `data`, `last`, `mime`; `model` / `fileName` ride on seq 0 |
 | `stt_response` | provider → consumer | `id`, `text` |
@@ -43,6 +43,13 @@ the optional extension can never break provider discovery itself.
 
 The protocol is wire compatible with the pre-library implementations this was extracted from, so
 old and new clients can share a room.
+
+`tts_request.speed` is an optional finite number in 0.25–4.0;
+`response_format` is one of `mp3`, `opus`, `aac`, `flac`, `wav`, `pcm`.
+Invalid values drop only that field. Providers forward valid hints upstream;
+an omitted speed uses their configured default. If the requested container is
+unsupported, providers may return another format and must report its actual
+`tts_response.mime`. Consumers trust that MIME type, never the requested format.
 
 `llm_request.reasoning_effort` is an additive v1 extension: `none`, `minimal`,
 `low`, `medium`, `high`, `xhigh`, `max`, and unknown strings pass through unchanged.

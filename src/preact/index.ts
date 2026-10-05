@@ -364,10 +364,10 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
     const voiceProviderService = hasVoice
       ? new VoiceProviderService(
           sendToNetwork,
-          async (text, model, voice, lang) => {
+          async (text, model, voice, lang, options) => {
             const fn = optionsRef.current.synthesize;
             if (!fn) throw new MistaiError("ENDPOINT_NOT_CONFIGURED", "This provider has no TTS endpoint configured.");
-            return fn(text, model, voice, lang);
+            return fn(text, model, voice, lang, options);
           },
           async (audio, mime, model, fileName) => {
             const fn = optionsRef.current.transcribe;

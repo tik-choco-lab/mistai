@@ -2,7 +2,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { createSharedNodeScope } from '../shared-node.js';
 import { createRoomConsumers } from '../rooms.js';
 import { RoomProviderService, inboundTarget, resolveSharedTargets, roomOaiUpstream } from '../room-provider.js';
-import { emptyLlmConfig, createProvider, patchProvider, createRoomProvider } from '../llm-config.js';
+import { emptyLlmConfig, createProvider, patchProvider, createRoomProvider, saveLlmConfig, resolveVoice } from '../llm-config.js';
 import { EVENT_RAW } from '../node.js';
 import { encode } from '../protocol.js';
 import { FakeMistNode, flushMicrotasks } from './fake-node.js';
@@ -12,6 +12,72 @@ function setup(){const config=emptyLlmConfig(),a=createProvider(config,'A'),b=cr
 it('keeps multiple consumers over one node, filters room events and scopes outbound messages',async()=>{
   const node=new FakeMistNode('peer');const init=vi.spyOn(node,'init');const rooms=createRoomConsumers(createSharedNodeScope(()=>node));const a=rooms.roomConsumer(' a '),b=rooms.roomConsumer('b');expect(rooms.roomConsumer('a')).toBe(a);expect(a).not.toBe(b);await Promise.all([a.connect('a'),b.connect('b')]);expect(init).toHaveBeenCalledTimes(1);expect(node.joinedRooms).toEqual(['a','b']);expect(node.sent.map(s=>s.roomId)).toEqual(['a','b']);
   node.emit(EVENT_RAW,'remote',encode({v:1,type:'provider_hello',models:['only-a'],services:['chat']}),'a');expect(a.status).toMatchObject({phase:'connected',models:['only-a']});expect(b.status.phase).toBe('searching');rooms.disconnectRoom(' a ');expect(a.status.phase).toBe('idle');expect(b.status.phase).toBe('searching');expect(node.leftRooms).toEqual(['a']);rooms.disconnectRoom('b');
+});
+
+it('room TTS sends shared speed, caller overrides and explicit format through ConsumerClient', async () => {
+  const { config, room } = setup();
+  config.tts = { providerId: room.id, model: 'network-auto', speed: 1.25 };
+  saveLlmConfig(config);
+  const node = new FakeMistNode('consumer');
+  const rooms = createRoomConsumers(createSharedNodeScope(() => node));
+  await rooms.roomConsumer('team').connect('team');
+  node.emit(EVENT_RAW, 'provider', encode({ v: 1, type: 'provider_hello', services: ['tts'] }), 'team');
+  try {
+    for (const [index, params] of [
+      { text: 'hello' },
+      { text: 'hello', speed: 2, responseFormat: 'opus' },
+      { text: 'hello', ...resolveVoice(config, 'tts')!, model: undefined },
+      { text: 'hello', speed: 99, responseFormat: 'bad' },
+    ].entries()) {
+      const promise = rooms.requestRoomTts(' team ', params);
+      await vi.waitFor(() => expect(node.sentMessages().filter(sent => sent.msg?.type === 'tts_request')).toHaveLength(index + 1));
+      const msg = node.sentMessages().filter(sent => sent.msg?.type === 'tts_request').at(-1)!.msg!;
+      expect(msg).toMatchObject({ type: 'tts_request', text: 'hello' });
+      if (index === 3) expect(msg).not.toHaveProperty('speed');
+      else expect(msg).toHaveProperty('speed', index === 1 ? 2 : 1.25);
+      if (index === 1) expect(msg).toHaveProperty('response_format', 'opus');
+      else expect(msg).not.toHaveProperty('response_format');
+      node.emit(EVENT_RAW, 'provider', encode({ v: 1, type: 'tts_response', id: (msg as { id: string }).id, seq: 0, last: true, data: '', mime: 'audio/wav' }), 'team');
+      expect((await promise).type).toBe('audio/wav');
+    }
+  } finally { rooms.disconnectRoom('team'); }
+});
+
+it('room TTS inherits shared speed even when the caller selects the room explicitly without a shared voice model', async () => {
+  const config = emptyLlmConfig();
+  config.tts = { model: '', speed: 1.75 };
+  saveLlmConfig(config);
+  const rooms = createRoomConsumers(() => new FakeMistNode('consumer'));
+  const request = vi.spyOn(rooms.roomConsumer('team'), 'requestTts').mockResolvedValue(new Blob());
+  await rooms.requestRoomTts('team', { text: 'hello' });
+  expect(request).toHaveBeenCalledWith('team', { text: 'hello', speed: 1.75 });
+});
+
+it('room provider forwards speech hints, defaults omitted/invalid speed, and reports actual MIME', async () => {
+  const { config, a, room } = setup();
+  config.tts = { providerId: a, model: 'speech', voice: 'alloy', speed: 1.25 };
+  const node = new FakeMistNode('provider'), consumers = createRoomConsumers(createSharedNodeScope(() => node));
+  const fetchFn = vi.fn(async (url: string) => url.endsWith('/audio/speech')
+    ? new Response('audio', { headers: { 'Content-Type': 'audio/wav' } })
+    : new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetchFn);
+  const manager = new RoomProviderService({ config, roomProvide: { [room.id]: { enabled: true, shared: [] } }, consumers });
+  try {
+    await flushMicrotasks();
+    for (const [index, hints] of [{ speed: 2, response_format: 'opus' }, {}, { speed: 99, response_format: 'invalid' }].entries()) {
+      const id = `speech-${index}`;
+      node.emit(EVENT_RAW, 'consumer', encode({ v: 1, type: 'tts_request', id, text: 'hello', ...hints }), 'team');
+      await vi.waitFor(() => expect(node.sentMessages().find(sent => sent.msg?.type === 'tts_response' && sent.msg.id === id)).toBeDefined());
+      const [url, init] = fetchFn.mock.calls.filter(([url]) => url.endsWith('/audio/speech')).at(-1)! as unknown as [string, RequestInit];
+      expect(url).toBe('https://a.test/v1/audio/speech');
+      expect(JSON.parse(init.body as string)).toEqual({ model: 'speech', input: 'hello', voice: 'alloy', speed: index === 0 ? 2 : 1.25, ...(index === 0 ? { response_format: 'opus' } : {}) });
+      expect(node.sentMessages().find(sent => sent.msg?.type === 'tts_response' && sent.msg.id === id)?.msg).toMatchObject({ mime: 'audio/wav' });
+    }
+    delete config.tts.speed;
+    node.emit(EVENT_RAW, 'consumer', encode({ v: 1, type: 'tts_request', id: 'upstream-default', text: 'hello' }), 'team');
+    await vi.waitFor(() => expect(node.sentMessages().find(sent => sent.msg?.type === 'tts_response' && sent.msg.id === 'upstream-default')).toBeDefined());
+    expect(JSON.parse((fetchFn.mock.calls.filter(([url]) => url.endsWith('/audio/speech')).at(-1)! as unknown as [string, RequestInit])[1].body as string)).not.toHaveProperty('speed');
+  } finally { manager.destroy(); }
 });
 it('waits for async room readiness, buffers early hellos and releases a canceled join after readiness',async()=>{
   const node=new FakeMistNode('peer');let ready!:()=>void;

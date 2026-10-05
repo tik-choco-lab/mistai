@@ -6,11 +6,23 @@
 // and size limits made overridable via options.
 
 import type { ProtocolMessage, TtsRequestMsg, SttRequestMsg } from "./protocol.js";
+import { isTtsSpeed, isTtsResponseFormat } from "./protocol.js";
 import { randomId } from "./id.js";
 import { base64ToBlob, blobToBase64, chunkBase64 } from "./base64.js";
 import { MistaiError } from "./errors.js";
 
 export type SendFn = (toId: string, msg: ProtocolMessage) => void;
+
+export interface TtsOptions {
+  speed?: number;
+  responseFormat?: string;
+}
+export interface TtsRequestParams extends TtsOptions {
+  text: string;
+  model?: string;
+  voice?: string;
+  lang?: string;
+}
 
 // A request must complete within this window; otherwise it's rejected so callers
 // (and their UI state) never hang forever if a provider vanishes mid-response.
@@ -66,7 +78,7 @@ export class VoiceConsumerService {
   }
 
   /** Requests speech synthesis from `providerId`; resolves with the assembled audio Blob. */
-  requestTts(providerId: string, params: { text: string; model?: string; voice?: string; lang?: string }): Promise<Blob> {
+  requestTts(providerId: string, params: TtsRequestParams): Promise<Blob> {
     if (params.text.length > this.maxTtsTextChars) {
       return Promise.reject(new MistaiError("TTS_TEXT_TOO_LONG", "TTS text is too long to send over the network in one message."));
     }
@@ -82,6 +94,8 @@ export class VoiceConsumerService {
         ...(params.model ? { model: params.model } : {}),
         ...(params.voice ? { voice: params.voice } : {}),
         ...(params.lang ? { lang: params.lang } : {}),
+        ...(isTtsSpeed(params.speed) ? { speed: params.speed } : {}),
+        ...(isTtsResponseFormat(params.responseFormat) ? { response_format: params.responseFormat } : {}),
       });
     });
   }

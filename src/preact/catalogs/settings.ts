@@ -11,6 +11,7 @@ export const settingsMessages = defineMessages({
     'voice-model-browser-option': 'Browser built-in (not set)',
     'voice-tts-model-label': 'TTS model',
     'voice-tts-voice-label': 'TTS voice',
+    'voice-tts-speed-label': 'TTS speed',
     'voice-provider-default-option': 'Provider default (not specified)',
     'voice-stt-model-label': 'STT model',
     'voice-connection-unresolved':
@@ -34,6 +35,7 @@ export const settingsMessages = defineMessages({
     'voice-model-browser-option': 'ブラウザ標準（未設定）',
     'voice-tts-model-label': 'TTS モデル',
     'voice-tts-voice-label': 'TTS ボイス',
+    'voice-tts-speed-label': 'TTS 速度',
     'voice-provider-default-option': 'provider 既定（未指定）',
     'voice-stt-model-label': 'STT モデル',
     'voice-connection-unresolved':
@@ -57,6 +59,7 @@ export const settingsMessages = defineMessages({
     'voice-model-browser-option': '浏览器内置（未设置）',
     'voice-tts-model-label': 'TTS 模型',
     'voice-tts-voice-label': 'TTS 语音',
+    'voice-tts-speed-label': 'TTS 语速',
     'voice-provider-default-option': 'provider 默认（未指定）',
     'voice-stt-model-label': 'STT 模型',
     'voice-connection-unresolved': '无法找到可用连接：请在上方重新选择模型，或在“连接”标签页添加连接，并在“任务”标签页设置默认模型。',
@@ -78,6 +81,7 @@ export const settingsMessages = defineMessages({
     'voice-model-browser-option': '瀏覽器內建（未設定）',
     'voice-tts-model-label': 'TTS 模型',
     'voice-tts-voice-label': 'TTS 語音',
+    'voice-tts-speed-label': 'TTS 語速',
     'voice-provider-default-option': 'provider 預設（未指定）',
     'voice-stt-model-label': 'STT 模型',
     'voice-connection-unresolved': '找不到可用連線：請在上方重新選擇模型，或在「連線」分頁新增連線，並在「任務」分頁設定預設模型。',

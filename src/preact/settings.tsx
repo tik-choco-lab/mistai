@@ -5,6 +5,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'preact
 import { createProvider, patchProvider, deleteProvider, setDefaultModel, setVoiceConfig, isNetworkProviderBaseUrl, networkProviderBaseUrl, roomIdFromBaseUrl, providerKind, type LlmProviderV1, type ModelRefV1, type SharedLlmConfigV1, type VoiceConfigV1 } from '../llm-config.js';
 import { refreshProviderModels, revalidateProviderModels } from '../model-catalog.js';
 import { fetchVoices } from '../openai.js';
+import { isTtsSpeed } from '../protocol.js';
 import { ModelPicker, useLiveModels } from './ModelPicker.js';
 import { ReasoningPicker } from './ReasoningPicker.js';
 import { ChoicePicker } from './ChoicePicker.js';
@@ -91,7 +92,11 @@ function VoiceRows({ config, voice, mic, recent, saveVoice, remember }: { config
     if (!voice?.[kind]) return null;
     const value = voice[kind]?.get?.() ?? config[kind];
     return <><div class="provider-task-row"><span data-tip={t(`voice-${kind}-tip`)}>{t(`voice-${kind}-heading`)}</span><ModelPicker providers={config.providers} recent={recent} label={t(`voice-${kind}-model-label`)} voice clearLabel={t('voice-model-browser-option')} value={value?.model ? { providerId: value.providerId ?? config.defaultModel?.providerId ?? '', model: value.model } : undefined} onChange={ref => { saveVoice(kind, { ...value, providerId: ref?.providerId, model: ref?.model ?? '' }); remember(ref); }} /></div>
-      {kind === 'tts' && engine !== 'browser' && <div class="provider-task-row"><span>{t('voice-tts-voice-label')}</span><ChoicePicker label={t('voice-tts-voice-label')} value={tts?.voice ?? ''} options={voices.map(value => ({ value, label: value || t('voice-provider-default-option') }))} onChange={value => saveVoice('tts', { ...tts, model: tts?.model ?? '', voice: value })} /></div>}</>;
+      {kind === 'tts' && engine !== 'browser' && <div class="provider-task-row"><span>{t('voice-tts-voice-label')}</span><ChoicePicker label={t('voice-tts-voice-label')} value={tts?.voice ?? ''} options={voices.map(value => ({ value, label: value || t('voice-provider-default-option') }))} onChange={value => saveVoice('tts', { ...tts, model: tts?.model ?? '', voice: value })} /></div>}
+      {kind === 'tts' && <label class="provider-task-row provider-field"><span>{t('voice-tts-speed-label')}</span><span class="provider-field-control"><input name="tts-speed" type="number" min="0.25" max="4" step="0.05" value={tts?.speed ?? 1} onInput={event => {
+        const speed = event.currentTarget.valueAsNumber;
+        if (isTtsSpeed(speed)) saveVoice('tts', { ...tts, model: tts?.model ?? '', speed });
+      }} /></span></label>}</>;
   })}{mic && <div class="provider-task-row"><span>{t('voice-mic-label')}</span><ChoicePicker className="mic-picker" label={t('voice-mic-label')} value={mic.deviceId} options={[{ value: '', label: t('voice-mic-default-option') }, ...(mic.devices ?? []).map((device, index) => ({ value: device.deviceId, label: device.label || t('voice-mic-fallback-label', { index: index + 1 }) }))]} onChange={mic.onChange} /></div>}{mic?.labelsHidden && <p class="hint">{t('voice-mic-permission-hint')} <button class="link-button" onClick={() => void mic.onUnlockLabels?.()}>{t('voice-mic-permission-button')}</button></p>}</>;
 }
 export function LlmSettings(props: LlmSettingsProps) {

@@ -7,6 +7,8 @@
 // and concurrency limits made overridable via options.
 
 import { ERROR_CODE_UNSUPPORTED_SERVICE } from "./protocol.js";
+import { isTtsSpeed, isTtsResponseFormat } from "./protocol.js";
+import type { TtsOptions } from "./voice-consumer.js";
 import type { ProtocolMessage, SttRequestMsg, TtsRequestMsg } from "./protocol.js";
 import type { ProviderLogEntry } from "./provider.js";
 import { base64ToBlob, blobToBase64, chunkBase64 } from "./base64.js";
@@ -18,6 +20,7 @@ export type SynthesizeFn = (
   model: string | undefined,
   voice: string | undefined,
   lang: string | undefined,
+  options?: TtsOptions,
 ) => Promise<{ blob: Blob; mime: string }>;
 export type TranscribeFn = (
   audio: Blob,
@@ -115,7 +118,10 @@ export class VoiceProviderService {
     const model = msg.model ?? "tts";
     this.log({ id: msg.id, fromId, model, status: "started", startedAt, charCount: msg.text.length });
     try {
-      const { blob, mime } = await this.synthesize(msg.text, msg.model, msg.voice, msg.lang);
+      const { blob, mime } = await this.synthesize(msg.text, msg.model, msg.voice, msg.lang, {
+        ...(isTtsSpeed(msg.speed) ? { speed: msg.speed } : {}),
+        ...(isTtsResponseFormat(msg.response_format) ? { responseFormat: msg.response_format } : {}),
+      });
       const parts = chunkBase64(await blobToBase64(blob));
       parts.forEach((data, index) => {
         this.send(fromId, {

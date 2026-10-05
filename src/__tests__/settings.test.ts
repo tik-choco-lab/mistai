@@ -29,7 +29,7 @@ it('voice room auto sentinel stays out of chat recents; browser clear applies im
   const {config,room}=setup(),ref={providerId:room.id,model:'network-auto'},choose=vi.fn();act(()=>render(h(ModelPicker,{providers:config.providers,value:ref,recent:[ref],voice:true,clearLabel:'Browser',label:'Voice',onChange:choose}),container));click('.model-picker-trigger');expect(document.querySelector('[data-model="network-auto"]')).not.toBeNull();click('[data-source-id="clear"]');expect(choose).toHaveBeenCalledWith(undefined);expect(document.querySelector('.model-picker-menu')).toBeNull();act(()=>render(h(ModelPicker,{providers:config.providers,recent:[ref],label:'Chat',onChange:choose}),container));click('.model-picker-trigger');expect(document.querySelector('[data-model="network-auto"]')).toBeNull();
 });
 it('search Down/Enter selects, Escape closes and restores trigger focus',()=>{
-  const {config}=setup(),choose=vi.fn();act(()=>render(h(ModelPicker,{providers:config.providers,value:config.defaultModel,recent:[],label:'Pick',onChange:choose}),container));click('.model-picker-trigger');const input=document.querySelector('input')!;act(()=>{input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));});act(()=>{document.querySelector('.model-picker-results')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));});expect(choose).toHaveBeenCalledWith(config.defaultModel);expect(document.activeElement?.className).toContain('model-picker-trigger');click('.model-picker-trigger');act(()=>document.querySelector('.model-picker-menu')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));expect(document.querySelector('.model-picker-menu')).toBeNull();
+  const {config}=setup(),choose=vi.fn();act(()=>render(h(ModelPicker,{providers:config.providers,value:config.defaultModel,recent:[],label:'Pick',onChange:choose}),container));click('.model-picker-trigger');const input=document.querySelector('input')!;act(()=>{input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));});act(()=>{document.querySelector('.model-picker-results')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));});expect(choose).toHaveBeenCalledWith(config.defaultModel);expect(document.activeElement?.className).toContain('model-picker-trigger');click('.model-picker-trigger');act(()=>{document.querySelector('.model-picker-menu')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));});expect(document.querySelector('.model-picker-menu')).toBeNull();
 });
 it('three tabs mount app-defined tasks, reasoning, voice and mic adapters',()=>{
   setup();let local={tasks:{summarize:{reasoningEffort:'none' as const}},roomProvide:{},recentModels:[]};act(()=>render(h(LlmSettings,{tasks:[{id:'summarize',label:'Summarize',reasoning:true}],localSettings:{get:()=>local,set:next=>{local=next as typeof local;}},voice:{tts:{},stt:{}},mic:{deviceId:'',onChange:()=>{}},locale:'ja'}),container));expect(document.querySelectorAll('[role="tab"]')).toHaveLength(3);click('[role="tab"]:nth-of-type(2)');expect(document.querySelector('[data-picker-name="summarize"]')).not.toBeNull();click('.reasoning-trigger');expect(document.querySelectorAll('.reasoning-option')).toHaveLength(7);click('[data-value="max"]');expect(local.tasks.summarize.reasoningEffort).toBe('max');expect(document.querySelector('.mic-picker')).not.toBeNull();
@@ -45,4 +45,31 @@ it('press originating in a popup cannot dismiss settings when released on the ba
 });
 it('voice options retain configured values and network uses only advertised voices',()=>{
   expect(buildTtsVoiceOptionValues(['voice-a'],'saved')).toEqual(['','saved','voice-a']);expect(resolveTtsVoiceOptions({engine:'network',fetchedApiVoices:['http']})).toEqual([]);expect(resolveTtsVoiceOptions({engine:'api',fetchedApiVoices:[],adapterVoiceOptions:['custom']})).toEqual(['custom']);
+});
+
+it('Tasks TTS speed persists to shared config, preserving voice fields and ignoring invalid values', () => {
+  const { config, a } = setup();
+  config.tts = { providerId: a, model: '', voice: 'saved', speed: 1.25 };
+  saveLlmConfig(config);
+  const local = { tasks: {}, roomProvide: {}, recentModels: [] };
+  act(() => render(h(LlmSettings, { tasks: [], initialTab: 'tasks', voice: { tts: {} }, localSettings: { get: () => local, set: () => {} } }), container));
+  const input = document.querySelector<HTMLInputElement>('[name="tts-speed"]')!;
+  expect(input.value).toBe('1.25');
+  expect(input.min).toBe('0.25');
+  expect(input.max).toBe('4');
+  const change = (value: string) => act(() => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); });
+  change('2');
+  expect(JSON.parse(localStorage.getItem('tc-shared-llm-config-v1')!).tts).toEqual({ providerId: a, model: '', voice: 'saved', speed: 2 });
+  for (const invalid of ['0.2', '5', '']) change(invalid);
+  expect(JSON.parse(localStorage.getItem('tc-shared-llm-config-v1')!).tts.speed).toBe(2);
+});
+
+it('Tasks TTS speed uses the voice adapter when supplied', () => {
+  setup();
+  const local = { tasks: {}, roomProvide: {}, recentModels: [] }, set = vi.fn();
+  act(() => render(h(LlmSettings, { tasks: [], initialTab: 'tasks', voice: { tts: { get: () => ({ model: '', voice: 'saved', speed: 1.5 }), set } }, localSettings: { get: () => local, set: () => {} } }), container));
+  const input = document.querySelector<HTMLInputElement>('[name="tts-speed"]')!;
+  expect(input.value).toBe('1.5');
+  act(() => { input.value = '0.25'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+  expect(set).toHaveBeenCalledWith({ model: '', voice: 'saved', speed: 0.25 });
 });

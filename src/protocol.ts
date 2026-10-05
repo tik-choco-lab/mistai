@@ -133,6 +133,10 @@ export interface TtsRequestMsg {
    * message, same as provider_hello's optional extensions.
    */
   lang?: string;
+  /** Optional finite playback speed hint, 0.25..4.0. */
+  speed?: number;
+  /** Requested container; consumers must use tts_response.mime for the real type. */
+  response_format?: string;
 }
 
 /** Audio flows provider->consumer in ordered chunks; `last` marks the final one. */
@@ -262,6 +266,14 @@ const MESSAGE_TYPES = new Set([
 
 const ROLES = new Set(["system", "user", "assistant"]);
 
+/** Validates optional speech hints independently, for both wire and local callers. */
+export function isTtsSpeed(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0.25 && value <= 4;
+}
+export function isTtsResponseFormat(value: unknown): value is string {
+  return typeof value === 'string' && ['mp3', 'opus', 'aac', 'flac', 'wav', 'pcm'].includes(value);
+}
+
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.length > 0;
 }
@@ -384,6 +396,8 @@ export function decode(data: Uint8Array | string): ProtocolMessage | null {
         ...(m.model !== undefined ? { model: m.model as string } : {}),
         ...(m.voice !== undefined ? { voice: m.voice as string } : {}),
         ...(isNonEmptyString(m.lang) ? { lang: m.lang } : {}),
+        ...(isTtsSpeed(m.speed) ? { speed: m.speed } : {}),
+        ...(isTtsResponseFormat(m.response_format) ? { response_format: m.response_format } : {}),
       };
     }
     case "tts_response": {
