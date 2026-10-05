@@ -3,7 +3,9 @@ const file='src/preact/ui.css';
 const original=fs.readFileSync(file,'utf8');
 const marker=original.indexOf(' * Settings UI');
 const end=marker>=0?original.lastIndexOf('/*',marker):original.indexOf('/* v0.9.0 provider/room settings.');
-const keep=original.slice(0,end);
+// `base` starts with its own newline, so trim what precedes it to a single newline;
+// otherwise every build adds one more blank line before the generated section.
+const keep=original.slice(0,end).replace(/\s*$/,'\n');
 const source=fs.readFileSync('src/preact/reference.css','utf8');
 // Scope the prototype's selectors; leave keyframe selectors and at-rules intact.
 const scoped=source.replace(/\/\*[\s\S]*?\*\//g,'').replace(/([^{}]+)\{/g,(all,header)=>{
