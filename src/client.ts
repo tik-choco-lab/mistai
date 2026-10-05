@@ -384,6 +384,12 @@ export class ConsumerClient {
             }
             pendingSession.consumer.handleMessage(msg);
           },
+          // Re-announce to each newly connected peer: an initial broadcast can
+          // be lost before the data channel opens, and providers answer
+          // consumer_hello with provider_hello.
+          onPeerConnected: (peerId) => {
+            network.send(peerId, { v: 1, type: "consumer_hello" });
+          },
           onPeerDisconnected: (peerId) => {
             if (!pendingSession.providers.delete(peerId)) return;
             // Only the requests that were actually sent to this provider are

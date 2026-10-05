@@ -195,6 +195,12 @@ export class OaiTunnelClient {
             // Everything else (llm_*, tts_*, stt_*, consumer_hello,
             // raft_message) is not relevant to this tunnel client.
           },
+          // Ask a newly connected peer to (re)announce itself. With a shared
+          // node, the peer may already be connected through another handle,
+          // so no fresh provider_hello would otherwise reach this client.
+          onPeerConnected: (peerId) => {
+            network.send(peerId, { v: 1, type: "consumer_hello" });
+          },
           onPeerDisconnected: (peerId) => {
             if (!pendingSession.providers.delete(peerId)) return;
             this.rejectByProvider(peerId, new MistaiError("PROVIDER_DISCONNECTED", PROVIDER_DISCONNECTED_MESSAGE));
@@ -204,7 +210,11 @@ export class OaiTunnelClient {
       pendingSession.network = network;
       network
         .join(roomId)
-        .then(() => resolve(pendingSession))
+        .then(() => {
+          // Solicit provider_hello from providers already in the room.
+          network.send(null, { v: 1, type: "consumer_hello" });
+          resolve(pendingSession);
+        })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
           reject(err instanceof Error ? err : new MistaiError("JOIN_FAILED", message));
