@@ -8,7 +8,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OaiTunnelClient, OaiTunnelProvider, type OaiUpstream } from "../tunnel.js";
-import { EVENT_RAW } from "../node.js";
+import { EVENT_PEER_CONNECTED, EVENT_RAW } from "../node.js";
 import { encode, type OaiRequestMsg, type ProtocolMessage } from "../protocol.js";
 import { FakeMistNode, flushMicrotasks } from "./fake-node.js";
 
@@ -204,5 +204,19 @@ describe("OaiTunnelProvider.dropPeer", () => {
     // Completing peerA's request now starts a *new* buffer (old one was dropped) rather than resolving.
     provider.handleMessage("peerA", { v: 1, type: "oai_request", id: "reqA", seq: 1, last: true, data: "" });
     expect(sent.some((s) => s.msg.type === "oai_error" && (s.msg as { code?: string }).code === undefined)).toBe(false);
+  });
+});
+
+describe("OaiTunnelClient provider discovery", () => {
+  it("solicits provider_hello on join and from newly connected peers", async () => {
+    const { client, nodes } = makeClient();
+    void client.request("room", { path: "/models", method: "GET" }).catch(() => undefined);
+    await flushMicrotasks();
+    const node = nodes[0];
+    expect(node.sentMessages().some((s) => s.toId == null && s.msg?.type === "consumer_hello")).toBe(true);
+    node.emit(EVENT_PEER_CONNECTED, "late-peer", null, "room");
+    await flushMicrotasks();
+    expect(node.sentMessages().some((s) => s.toId === "late-peer" && s.msg?.type === "consumer_hello")).toBe(true);
+    client.disconnect();
   });
 });
