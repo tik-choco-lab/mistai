@@ -272,11 +272,11 @@ export function deleteProvider(config: SharedLlmConfigV1, id: string): void {
 export function setVoiceConfig(
   config: SharedLlmConfigV1,
   kind: 'tts' | 'stt',
-  next: { providerId?: string; model: string; voice?: string },
+  next: VoiceConfigV1,
 ): void {
   const previous = config[kind]
   config[kind] = {
-    ...(previous?.speed !== undefined ? { speed: previous.speed } : {}),
+    ...((next.speed ?? previous?.speed) !== undefined ? { speed: next.speed ?? previous?.speed } : {}),
     ...(next.providerId ? { providerId: next.providerId } : {}),
     model: next.model,
     ...(next.voice ? { voice: next.voice } : {}),

@@ -54,6 +54,17 @@ function helloMessages(node: FakeMistNode) {
 }
 
 describe("useNetworkProvider hello re-broadcast", () => {
+  it('forwards speech options through the live synthesize wrapper', async () => {
+    const node = new FakeMistNode('provider');
+    const synthesize = vi.fn(async () => ({ blob: new Blob([]), mime: 'audio/wav' }));
+    const { unmount } = renderProviderHook(() => ({ enabled: true, roomId: 'team', createNode: () => node, synthesize }));
+    try {
+      await flushEffects();
+      node.emit(EVENT_RAW, 'consumer', encode({ v: 1, type: 'tts_request', id: 'speech', text: 'hello', lang: 'ja', speed: 1.5, response_format: 'opus' }));
+      await vi.waitFor(() => expect(node.sentMessages().find(sent => sent.msg?.type === 'tts_response')).toBeDefined());
+      expect(synthesize).toHaveBeenCalledWith('hello', undefined, undefined, 'ja', { speed: 1.5, responseFormat: 'opus' });
+    } finally { unmount(); }
+  });
   it("forwards request effort through the live callLlm wrapper", async () => {
     const node = new FakeMistNode('provider');
     const messages = [{ role: 'user' as const, content: 'hi' }];
@@ -129,7 +140,7 @@ describe("useNetworkProvider hello re-broadcast", () => {
         nodes.push(node);
         return node;
       },
-      synthesize: async () => new Blob(),
+      synthesize: async () => ({ blob: new Blob(), mime: 'audio/mpeg' }),
       advertisedVoices,
     });
 

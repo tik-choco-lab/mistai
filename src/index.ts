@@ -31,6 +31,8 @@ export {
   MAX_AUDIO_BASE64_CHARS,
   MAX_TTS_TEXT_CHARS,
   type VoiceConsumerOptions,
+  type TtsOptions,
+  type TtsRequestParams,
 } from "./voice-consumer.js";
 
 export {

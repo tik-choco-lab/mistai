@@ -1,10 +1,11 @@
-# mistai 0.9.1
+# mistai 0.10.0
 
 A TypeScript library for shared HTTP model connections and peer-to-peer AI rooms.
 Chat, TTS, STT and an OpenAI HTTP tunnel share one injected transport. Optional
 Preact settings give apps the same Connections / Tasks / Sharing interface.
 
-0.9.1 adds backward-compatible task reasoning effort to streaming room chat.
+0.10.0 adds optional TTS speed/format hints and a Tasks-tab TTS speed control.
+See the [0.9 migration notes](#migration-from-09-to-010) for provider callbacks.
 The 0.9.0 **breaking 0.x release** replaced presets with `{ providerId, model }`
 references. Rooms are providers, and temperature is never sent upstream. See the
 [0.8 migration instructions](#migration-from-08) before updating an existing app.
@@ -16,7 +17,7 @@ Install from GitHub or a sibling checkout; `prepare` builds the distribution:
 ```json
 {
   "dependencies": {
-    "@tik-choco/mistai": "github:tik-choco-lab/mistai#v0.9.1"
+    "@tik-choco/mistai": "github:tik-choco-lab/mistai#v0.10.0"
   }
 }
 ```
@@ -203,6 +204,23 @@ chat responses. TTS/STT are advertised only with usable HTTP voice targets.
 For a non-Preact host, `new RoomProviderService({ config, roomProvide, consumers })`
 offers `update(options)`, `subscribe(cb)`, `states` and `destroy()`.
 
+## Migration from 0.9 to 0.10
+
+`SynthesizeFn` gains one optional trailing options object:
+`(text, model, voice, lang, options?: { speed?: number; responseFormat?: string })`.
+Existing four-argument providers still compile. Update your implementation to
+forward `options.speed` and `options.responseFormat` to the upstream speech API
+when present, and return the actual audio MIME type even if the requested format
+cannot be honored. Consumers always trust the response MIME type.
+
+`requestRoomTts`, `ConsumerClient.requestTts`, and `VoiceConsumerService.requestTts`
+accept `speed` (finite, 0.25–4) and `responseFormat` (`mp3`, `opus`, `aac`, `flac`,
+`wav`, `pcm`). Invalid hints are ignored independently. `requestRoomTts` uses the
+current shared `tts.speed` when the caller omits speed;
+an explicit caller speed wins. Only explicitly requested formats go on the wire.
+The Tasks tab exposes shared TTS speed, including through voice adapters.
+Wire and shared configuration versions remain v1.
+
 ## Migration from 0.8
 
 1. Replace `ModelPresetV1` task IDs with `ModelRefV1`. Run
@@ -235,7 +253,7 @@ const task = {
 `presets`, `defaultPresetId` and `network` remain readable migration data and
 are written back unchanged by `saveLlmConfig`; unmigrated same-origin apps still
 need them. New code never changes them or silently rewrites dangling refs.
-The localStorage key and wire protocol remain v1; the library version is 0.9.1.
+The localStorage key and wire protocol remain v1; the library version is 0.10.0.
 
 ## API and verification
 

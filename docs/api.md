@@ -1,7 +1,7 @@
 # API reference (0.9.1)
 
 The [complete exported value/type list](exports.md) is generated from the public
-TypeScript entry points. See [README](../README.md) for usage and 0.8 migration.
+TypeScript entry points. See [README](../README.md) for usage and migration notes.
 
 | Import | Contents |
 | --- | --- |
@@ -64,6 +64,13 @@ const answer = await requestRoomChat(roomId, messages, {
   onDelta: (delta, full) => updateReply(full),
 })
 ```
+
+Voice requests use `TtsRequestParams` (`text`, optional `model`, `voice`, `lang`,
+`speed`, `responseFormat`). `requestRoomTts` defaults omitted speed from the
+shared voice configuration; direct consumer services use only their caller's
+hints. `SynthesizeFn(text, model, voice, lang, options?: TtsOptions)` receives
+one trailing object with optional speed/format. Existing providers remain
+assignable. Returned audio uses the provider's actual MIME type.
 
 New provider:
 

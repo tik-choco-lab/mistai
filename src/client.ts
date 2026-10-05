@@ -17,7 +17,7 @@
 import { Network, type MistNodeLike } from "./node.js";
 import { MistaiError, type MistaiErrorCode } from "./errors.js";
 import { ConsumerService, type ConsumerRequestOptions } from "./consumer.js";
-import { VoiceConsumerService } from "./voice-consumer.js";
+import { VoiceConsumerService, type TtsRequestParams } from "./voice-consumer.js";
 import { helloServices, ERROR_CODE_UNSUPPORTED_SERVICE, type ChatMessage } from "./protocol.js";
 
 const DEFAULT_PROVIDER_WAIT_TIMEOUT_MS = 10_000;
@@ -301,10 +301,10 @@ export class ConsumerClient {
   }
 
   /** Requests speech synthesis over the LLM Network room; resolves with the audio Blob. */
-  async requestTts(roomId: string, params: { text: string; model?: string; voice?: string; lang?: string }): Promise<Blob> {
+  async requestTts(roomId: string, params: TtsRequestParams): Promise<Blob> {
     const session = await this.ensureTrimmedSession(roomId);
     return this.requestWithFailover(session, "tts", params.model, params.voice, (providerId, model) =>
-      session.voiceConsumer.requestTts(providerId, { text: params.text, model, voice: params.voice, lang: params.lang }),
+      session.voiceConsumer.requestTts(providerId, { ...params, model }),
     );
   }
 

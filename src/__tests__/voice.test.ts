@@ -36,7 +36,7 @@ describe("VoiceConsumerService + VoiceProviderService", () => {
 
     const blob = await consumer.requestTts("provider1", { text: "こんにちは", model: "tts-1", voice: "alloy" });
 
-    expect(synthesize).toHaveBeenCalledWith("こんにちは", "tts-1", "alloy", undefined);
+    expect(synthesize).toHaveBeenCalledWith("こんにちは", "tts-1", "alloy", undefined, {});
     expect(blob.type).toBe("audio/wav");
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(audioBytes);
   });
@@ -56,7 +56,7 @@ describe("VoiceConsumerService + VoiceProviderService", () => {
 
     await consumer.requestTts("provider1", { text: "hello", model: "tts-1", voice: "alloy", lang: "ja-JP" });
 
-    expect(synthesize).toHaveBeenCalledWith("hello", "tts-1", "alloy", "ja-JP");
+    expect(synthesize).toHaveBeenCalledWith("hello", "tts-1", "alloy", "ja-JP", {});
   });
 
   it("omits lang on the wire when not requested, so synthesize receives undefined", async () => {
@@ -74,7 +74,7 @@ describe("VoiceConsumerService + VoiceProviderService", () => {
     const promise = consumer.requestTts("provider1", { text: "hello" });
     await provider.handleMessage("consumer1", sent[0]);
 
-    expect(synthesize).toHaveBeenCalledWith("hello", undefined, undefined, undefined);
+    expect(synthesize).toHaveBeenCalledWith("hello", undefined, undefined, undefined, {});
     consumer.rejectAll(new Error("test cleanup")); // clears the pending request timer
     await expect(promise).rejects.toThrow("test cleanup");
   });

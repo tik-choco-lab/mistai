@@ -6,6 +6,7 @@ import { VoiceProviderService, rejectVoiceRequest } from './voice-provider.js';
 import { OaiTunnelProvider, type OaiUpstreamResolver } from './tunnel.js';
 import { getRoomConsumers, type RoomConsumers } from './rooms.js';
 import type { ProviderHelloMsg } from './protocol.js';
+import { isTtsSpeed } from './protocol.js';
 
 export type RoomProvideV1 = { enabled: boolean; shared: ModelRefV1[] };
 export type RoomProviderState = {
@@ -113,9 +114,10 @@ export class RoomProviderService {
       if (!target) throw new Error('No usable HTTP model configured.');
       return streamChatCompletion({ ...target, reasoningEffort: reasoningEffort ?? this.options.reasoningEffort }, messages, onDelta);
     }, { onRequestLog: log });
-    const voice = new VoiceProviderService(send, async (text, _model, voice) => {
+    const voice = new VoiceProviderService(send, async (text, _model, voice, _lang, options) => {
       const target = this.voiceTarget('tts'); if (!target) throw new Error('No HTTP TTS model configured.');
-      const response = await fetch(`${target.baseUrl.replace(/\/+$/, '')}/audio/speech`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${target.apiKey}` }, body: JSON.stringify({ model: target.model, input: text, ...(voice || target.voice ? { voice: voice || target.voice } : {}), ...(target.speed !== undefined ? { speed: target.speed } : {}), response_format: 'mp3' }) });
+      const speed = options?.speed ?? (isTtsSpeed(target.speed) ? target.speed : undefined);
+      const response = await fetch(`${target.baseUrl.replace(/\/+$/, '')}/audio/speech`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${target.apiKey}` }, body: JSON.stringify({ model: target.model, input: text, ...(voice || target.voice ? { voice: voice || target.voice } : {}), ...(speed !== undefined ? { speed } : {}), ...(options?.responseFormat ? { response_format: options.responseFormat } : {}) }) });
       if (!response.ok) throw new Error(`Speech request failed with ${response.status}`);
       const blob = await response.blob(); return { blob, mime: blob.type || 'audio/mpeg' };
     }, async (audio, _mime, _model, fileName) => {

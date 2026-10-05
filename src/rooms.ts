@@ -5,6 +5,8 @@ import { OaiTunnelClient, type OaiTunnelRequestInit } from './tunnel.js';
 import type { ChatMessage } from './protocol.js';
 import type { MistNodeLike } from './node.js';
 import { cacheRoomModels } from './model-catalog.js';
+import { loadLlmConfig } from './llm-config.js';
+import type { TtsRequestParams } from './voice-consumer.js';
 
 export type NodeScope = (nodeId: string) => MistNodeLike;
 export type RoomChatOptions = Pick<ConsumerRequestOptions, 'model' | 'reasoningEffort' | 'onDelta'>;
@@ -15,7 +17,7 @@ export interface RoomConsumers {
   disconnectRoom(roomId: string): void;
   /** Streaming llm_request chat. Prefer the options form; positional model/onDelta remain supported. */
   requestRoomChat(roomId: string, messages: ChatMessage[], modelOrOptions?: string | RoomChatOptions, onDelta?: (delta: string, full: string) => void): Promise<string>;
-  requestRoomTts(roomId: string, params: { text: string; model?: string; voice?: string; lang?: string }): Promise<Blob>;
+  requestRoomTts(roomId: string, params: TtsRequestParams): Promise<Blob>;
   requestRoomStt(roomId: string, params: { audio: Blob; model?: string; fileName?: string }): Promise<string>;
   requestRoomOpenAi(roomId: string, request: OaiTunnelRequestInit): ReturnType<OaiTunnelClient['request']>;
 }
@@ -41,7 +43,13 @@ export function createRoomConsumers(nodeScope: NodeScope, options: Omit<Consumer
       const options = typeof modelOrOptions === 'object' ? modelOrOptions : { model: modelOrOptions, onDelta };
       return result.roomConsumer(room).requestChat(room.trim(), messages, options);
     },
-    requestRoomTts(room, params) { return result.roomConsumer(room).requestTts(room.trim(), params); },
+    requestRoomTts(room, params) {
+      // Apply the shared voice speed once at the app-facing room entry point.
+      // A caller (including one using resolveVoice) can always override it.
+      const config = loadLlmConfig();
+      const speed = params.speed ?? config?.tts?.speed;
+      return result.roomConsumer(room).requestTts(room.trim(), { ...params, speed });
+    },
     requestRoomStt(room, params) { return result.roomConsumer(room).requestStt(room.trim(), params); },
     requestRoomOpenAi(roomId, request) {
       const room = roomId.trim();
