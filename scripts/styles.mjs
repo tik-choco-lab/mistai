@@ -36,5 +36,13 @@ const base=`
 .mistai-surface .link-button {padding:0;border:0;background:none;color:var(--focus);text-decoration:underline;cursor:pointer;font:inherit;}
 .mistai-surface .provider-field-control {min-width:0;display:grid;gap:4px;}
 .mistai-surface .provider-field-saved {color:var(--success);font-size:11px;}
+/* Switch component: standalone so app screens outside .mistai-surface get the identical on/off control. */
+.mistai-switch {box-sizing:border-box;display:inline-block;vertical-align:middle;width:36px;height:22px;flex:none;padding:3px;border:0;border-radius:999px;background:var(--mistai-border-strong,#cdd3dc);cursor:pointer;transition:background var(--mistai-motion-fast,120ms) var(--mistai-ease-out,cubic-bezier(.2,.8,.2,1));}
+.mistai-switch span {display:block;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:var(--mistai-shadow-1,0 1px 3px rgba(16,24,40,.1));transition:transform var(--mistai-motion-base,200ms) var(--mistai-ease-out,cubic-bezier(.2,.8,.2,1));}
+.mistai-switch[aria-checked="true"] {background:var(--mistai-primary,#0d9488);}
+.mistai-switch[aria-checked="true"] span {transform:translateX(14px);}
+.mistai-switch:disabled {opacity:.5;cursor:not-allowed;}
+.mistai-switch:focus-visible {outline:2px solid var(--mistai-focus,#0d9488);outline-offset:2px;box-shadow:0 0 0 4px var(--mistai-focus-ring,rgba(13,148,136,.2));}
+@media (prefers-reduced-motion: reduce){.mistai-switch,.mistai-switch span{transition:none;}}
 `;
 fs.writeFileSync(file,(keep+base+scoped+'\n@media (prefers-reduced-motion: reduce) { .mistai-surface *, .mistai-surface *::before, .mistai-surface *::after { animation:none!important; transition:none!important; } }\n').replace(/[ \t]+$/gm,''));

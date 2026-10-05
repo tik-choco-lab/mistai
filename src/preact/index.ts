@@ -27,6 +27,7 @@ export { ModelPicker, matchesModelQuery, sameModel, modelKey } from './ModelPick
 export { TwoPaneModelPicker } from './TwoPaneModelPicker.js';
 export { ReasoningPicker } from './ReasoningPicker.js';
 export { ChoicePicker } from './ChoicePicker.js';
+export { Switch } from './Switch.js';
 
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ConsumerClient, type ConsumerStatus } from "../client.js";

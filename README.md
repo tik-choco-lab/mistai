@@ -1,4 +1,4 @@
-# mistai 0.10.1
+# mistai 0.10.2
 
 A TypeScript library for shared HTTP model connections and peer-to-peer AI rooms.
 Chat, TTS, STT and an OpenAI HTTP tunnel share one injected transport. Optional
@@ -6,6 +6,7 @@ Preact settings give apps the same Connections / Tasks / Sharing interface.
 
 0.10.0 adds optional TTS speed/format hints and a Tasks-tab TTS speed control.
 0.10.1 renders the TTS speed as the same choice picker as the other task rows (presets plus "provider default", which clears the stored speed).
+0.10.2 exports `Switch` (`@tik-choco/mistai/preact`), the single on/off control for settings screens; its `.mistai-switch` styles in `ui.css` also work outside `.mistai-surface`. Use a checkbox only for picking items from a set.
 See the [0.9 migration notes](#migration-from-09-to-010) for provider callbacks.
 The 0.9.0 **breaking 0.x release** replaced presets with `{ providerId, model }`
 references. Rooms are providers, and temperature is never sent upstream. See the
@@ -254,7 +255,7 @@ const task = {
 `presets`, `defaultPresetId` and `network` remain readable migration data and
 are written back unchanged by `saveLlmConfig`; unmigrated same-origin apps still
 need them. New code never changes them or silently rewrites dangling refs.
-The localStorage key and wire protocol remain v1; the library version is 0.10.1.
+The localStorage key and wire protocol remain v1; the library version is 0.10.2.
 
 ## API and verification
 
