@@ -4,6 +4,7 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 import { ModelPicker, matchesModelQuery } from '../preact/ModelPicker.js';
 import { LlmSettings, buildTtsVoiceOptionValues, resolveTtsVoiceOptions } from '../preact/settings.js';
+import { Switch } from '../preact/Switch.js';
 import { emptyLlmConfig, createProvider, patchProvider, createRoomProvider, saveLlmConfig } from '../llm-config.js';
 import { createRoomConsumers } from '../rooms.js';
 import { createSharedNodeScope } from '../shared-node.js';
@@ -72,4 +73,15 @@ it('Tasks TTS speed uses the voice adapter when supplied', () => {
   click('.tts-speed-picker .choice-trigger');
   click('.reasoning-option[data-value="0.75"]');
   expect(set).toHaveBeenCalledWith({ model: '', voice: 'saved', speed: 0.75 });
+});
+
+it('Switch is the shared on/off control: role, state, label and toggle', () => {
+  const change = vi.fn();
+  act(() => render(h(Switch, { checked: false, label: 'Auto', onChange: change }), container));
+  const button = container.querySelector<HTMLButtonElement>('button.mistai-switch')!;
+  expect(button.getAttribute('role')).toBe('switch');
+  expect(button.getAttribute('aria-checked')).toBe('false');
+  expect(button.getAttribute('aria-label')).toBe('Auto');
+  act(() => button.click());
+  expect(change).toHaveBeenCalledWith(true);
 });

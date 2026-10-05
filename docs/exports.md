@@ -1,4 +1,4 @@
-# Exported API (v0.10.1)
+# Exported API (v0.10.2)
 
 Generated from the public entry points. `ui.css` is the stylesheet subpath.
 
@@ -28,7 +28,7 @@ Generated from the public entry points. `ui.css` is the stylesheet subpath.
 
 **Values**
 
-`buildTtsVoiceOptionValues`, `ChoicePicker`, `consumerErrorText`, `ConsumerStatusIndicator`, `ConsumerStepIndicator`, `deriveHelloServices`, `LLM_SETTINGS_MESSAGES`, `LlmSettings`, `matchesModelQuery`, `modelKey`, `ModelPicker`, `ProviderStatusPanel`, `REASONING_EFFORT_OPTIONS`, `reasoningEffortOptions`, `ReasoningPicker`, `resolveTtsVoiceOptions`, `routeProviderRequest`, `sameModel`, `shouldShowTtsVoiceRow`, `TwoPaneModelPicker`, `useConsumerConnection`, `useConsumerStatus`, `useLlmConfig`, `useModelCatalog`, `useNetworkProvider`, `useRoomProviders`.
+`buildTtsVoiceOptionValues`, `ChoicePicker`, `consumerErrorText`, `ConsumerStatusIndicator`, `ConsumerStepIndicator`, `deriveHelloServices`, `LLM_SETTINGS_MESSAGES`, `LlmSettings`, `matchesModelQuery`, `modelKey`, `ModelPicker`, `ProviderStatusPanel`, `REASONING_EFFORT_OPTIONS`, `reasoningEffortOptions`, `ReasoningPicker`, `resolveTtsVoiceOptions`, `routeProviderRequest`, `sameModel`, `shouldShowTtsVoiceRow`, `Switch`, `TwoPaneModelPicker`, `useConsumerConnection`, `useConsumerStatus`, `useLlmConfig`, `useModelCatalog`, `useNetworkProvider`, `useRoomProviders`.
 
 **Types**
 

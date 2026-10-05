@@ -9,6 +9,7 @@ import { isTtsSpeed } from '../protocol.js';
 import { ModelPicker, useLiveModels } from './ModelPicker.js';
 import { ReasoningPicker } from './ReasoningPicker.js';
 import { ChoicePicker } from './ChoicePicker.js';
+import { Switch } from './Switch.js';
 import { ProviderStatus } from './ProviderStatus.js';
 import { SharingPanel } from './SharingPanel.js';
 import { AddConnectionPopup, focusProviderCard } from './AddConnectionPopup.js';
@@ -66,7 +67,7 @@ function ProviderCard({ provider, update, remove }: { provider: LlmProviderV1; u
     window.addEventListener('mistai-focus-provider', focus); return () => window.removeEventListener('mistai-focus-provider', focus);
   }, [provider.id]);
   return <article class={`provider-card ${provider.enabled === false ? 'provider-disabled' : ''}`} data-provider-id={provider.id}>
-    <div class="provider-card-heading"><button type="button" class="settings-switch" role="switch" aria-checked={provider.enabled !== false} onClick={() => update({ enabled: provider.enabled === false })} aria-label={`${provider.label} ${t('models-enabled')}`} data-tip={t('models-enabled')}><span /></button>
+    <div class="provider-card-heading"><Switch checked={provider.enabled !== false} onChange={enabled => update({ enabled })} label={`${provider.label} ${t('models-enabled')}`} tip={t('models-enabled')} />
       <button type="button" class="provider-card-summary" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}><span class="provider-kind">{room ? t('connection-room') : 'HTTP'}</span><span class="provider-card-name"><strong title={provider.label || provider.baseUrl}>{provider.label || provider.baseUrl}</strong><span class="provider-card-meta" title={room ? roomIdFromBaseUrl(provider.baseUrl) : provider.baseUrl}>{room ? roomIdFromBaseUrl(provider.baseUrl) : provider.baseUrl}</span></span><ChevronDown size={16} class="disclosure-chevron" /></button>
       <ProviderStatus provider={provider} status={status} updatedAt={updatedAt} provide={local.roomProvide[provider.id]?.enabled ?? false} />
     </div><AnimatedDisclosure open={expanded}><div class="provider-card-body">
