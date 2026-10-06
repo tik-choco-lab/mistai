@@ -371,9 +371,10 @@ export class ConsumerClient {
         callbacks: {
           onMessage: (fromId, msg) => {
             if (msg.type === "provider_hello") {
+              const firstHello = !pendingSession.providers.has(fromId);
               pendingSession.providers.set(fromId, { models: msg.models, voices: msg.voices, services: helloServices(msg) });
-              // Identify ourselves so the provider can label us a consumer.
-              network.send(fromId, { v: 1, type: "consumer_hello" });
+              // Providers answer consumer_hello; acknowledge only once per connection.
+              if (firstHello) network.send(fromId, { v: 1, type: "consumer_hello" });
               this.resolveProviderWaiters(pendingSession);
               this.emitTableStatus(pendingSession);
               return;
