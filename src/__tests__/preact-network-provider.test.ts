@@ -22,7 +22,7 @@ import {
 } from "../preact/index.js";
 import type { OaiUpstream } from "../tunnel.js";
 import { FakeMistNode } from "./fake-node.js";
-import { EVENT_RAW } from "../node.js";
+import { EVENT_PEER_CONNECTED, EVENT_PEER_DISCONNECTED, EVENT_RAW } from "../node.js";
 import { encode } from "../protocol.js";
 
 // preact.render()'s only use of `document` is an identity check
@@ -54,6 +54,42 @@ function helloMessages(node: FakeMistNode) {
 }
 
 describe("useNetworkProvider hello re-broadcast", () => {
+  it("answers consumer hello once per connection, even before a state render", async () => {
+    const node = new FakeMistNode("provider");
+    let advertisedModels = ["m1"];
+    const { result, rerender, unmount } = renderProviderHook(() => ({
+      enabled: true, roomId: "team", createNode: () => node,
+      callLlm: async () => "unused", advertisedModels,
+    }));
+    const greet = () => node.emit(EVENT_RAW, "consumer", encode({ v: 1, type: "consumer_hello" }));
+    const replies = () => helloMessages(node).filter(m => m.toId === "consumer");
+    try {
+      await flushEffects();
+      node.emit(EVENT_PEER_CONNECTED, "consumer", null);
+      expect(replies()).toHaveLength(1);
+      greet();
+      greet();
+      expect(replies()).toHaveLength(2);
+      await flushEffects();
+      expect(result.current?.consumerCount).toBe(1);
+      advertisedModels = ["updated"];
+      rerender();
+      await flushEffects();
+      expect(helloMessages(node).at(-1)).toMatchObject({ toId: null, msg: { models: ["updated"] } });
+      greet();
+      expect(replies()).toHaveLength(2);
+      node.emit(EVENT_PEER_DISCONNECTED, "consumer", null);
+      await flushEffects();
+      expect(result.current?.consumerCount).toBe(0);
+      // Hello may arrive before the peer-connected event on a new connection.
+      greet();
+      greet();
+      expect(replies()).toHaveLength(3);
+      await flushEffects();
+      expect(result.current?.consumerCount).toBe(1);
+    } finally { unmount(); }
+  });
+
   it('forwards speech options through the live synthesize wrapper', async () => {
     const node = new FakeMistNode('provider');
     const synthesize = vi.fn(async () => ({ blob: new Blob([]), mime: 'audio/wav' }));

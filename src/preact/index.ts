@@ -301,6 +301,9 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
       });
     };
 
+    // Track acknowledgements synchronously: multiple hellos can arrive before
+    // Preact renders the updated peer state. This set belongs to this session.
+    const consumers = new Set<string>();
     const sendToNetwork: SendFn = (toId, msg) => network.send(toId, msg);
 
     const network = new Network({
@@ -317,6 +320,7 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
           network.send(peerId, helloMessage());
         },
         onPeerDisconnected: (peerId) => {
+          consumers.delete(peerId);
           setPeers((current) => current.filter((peer) => peer.nodeId !== peerId));
           voiceProviderServiceRef.current?.dropPeer(peerId);
           tunnelProviderRef.current?.dropPeer(peerId);
@@ -329,6 +333,8 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
           // routeProviderRequest at all.
           if (tunnelProviderRef.current?.handleMessage(fromId, msg)) return;
           if (msg.type === "consumer_hello") {
+            const firstHello = !consumers.has(fromId);
+            consumers.add(fromId);
             setPeers((current) => {
               const existing = current.find((peer) => peer.nodeId === fromId);
               if (existing) {
@@ -336,7 +342,7 @@ export function useNetworkProvider(options: UseNetworkProviderOptions): UseNetwo
               }
               return [...current, { nodeId: fromId, connectedAt: Date.now(), isConsumer: true }];
             });
-            network.send(fromId, helloMessage());
+            if (firstHello) network.send(fromId, helloMessage());
             return;
           }
           routeProviderRequest(fromId, msg, {

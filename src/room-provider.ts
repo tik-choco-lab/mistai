@@ -98,8 +98,9 @@ export class RoomProviderService {
         if (s.tunnel.handleMessage(from, msg)) return;
         if (msg.type === 'consumer_hello') {
           const peer = s.state.peers.find(p => p.nodeId === from);
+          const firstHello = !peer?.isConsumer;
           if (peer) peer.isConsumer = true; else s.state.peers.push({ nodeId: from, connectedAt: Date.now(), isConsumer: true });
-          s.state.consumerCount = s.state.peers.filter(p => p.isConsumer).length; network.send(from, this.hello(id, s)); this.notify();
+          s.state.consumerCount = s.state.peers.filter(p => p.isConsumer).length; if (firstHello) network.send(from, this.hello(id, s)); this.notify();
         } else if (msg.type === 'llm_request') { if (this.hello(id, s).services?.includes('chat')) void chat.handleMessage(from, msg); else rejectLlmRequest(send, from, msg.id); }
         else if (msg.type === 'tts_request' || msg.type === 'stt_request') {
           const kind = msg.type === 'tts_request' ? 'tts' : 'stt';
