@@ -10,11 +10,16 @@ import { decode, encode, type ProtocolMessage } from "./protocol.js";
 import { getPersistentNodeId } from "./id.js";
 
 // Mist event/delivery constants, mirrored from the mistlib web wrapper so the
-// library does not have to import it.
+// library does not have to import it. Event codes follow the unified
+// native/wasm numbering introduced in mistlib 0.7.1 (peer connected 5→2,
+// disconnected 6→3); older engines are not supported.
 export const EVENT_RAW = 0;
-export const EVENT_PEER_CONNECTED = 5;
-export const EVENT_PEER_DISCONNECTED = 6;
+export const EVENT_PEER_CONNECTED = 2;
+export const EVENT_PEER_DISCONNECTED = 3;
 export const DELIVERY_RELIABLE = 0;
+
+/** mistlib delivery methods: reliable, unreliable-ordered, unreliable, reliable-unordered. */
+export type MistDelivery = 0 | 1 | 2 | 3;
 
 /** Structural interface for the vendored mistlib `MistNode` (or any compatible transport). */
 export interface MistNodeLike {
@@ -35,7 +40,7 @@ export interface MistNodeLike {
    * that room" and no-arg as "leave everything this handle joined".
    */
   leaveRoom(roomId?: string): void;
-  sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: number, roomId?: string): void;
+  sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: MistDelivery, roomId?: string): void;
 }
 
 export interface NetworkCallbacks {

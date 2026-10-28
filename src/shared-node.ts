@@ -41,7 +41,7 @@
 // callers — notably tests — can create more than one isolated scope instead
 // of sharing one implicit page-wide singleton.
 
-import type { MistNodeLike } from "./node.js";
+import type { MistDelivery, MistNodeLike } from "./node.js";
 
 interface ScopeState {
   realNode: MistNodeLike | null;
@@ -153,7 +153,7 @@ class SharedNodeHandle implements MistNodeLike {
     if (this.rooms.size === 0) this.scope.liveHandles.delete(this);
   }
 
-  sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: number): void {
+  sendMessage(toId: string | null | undefined, payload: Uint8Array, delivery?: MistDelivery): void {
     for (const room of this.rooms) {
       if (this.scope.readyRooms.has(room)) this.scope.realNode?.sendMessage(toId, payload, delivery, room);
       else void this.scope.roomJoins.get(room)?.then(() => {

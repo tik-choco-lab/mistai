@@ -8,7 +8,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OaiTunnelClient, OaiTunnelProvider, type OaiUpstream } from "../tunnel.js";
-import { EVENT_PEER_CONNECTED, EVENT_RAW } from "../node.js";
+import { EVENT_PEER_CONNECTED, EVENT_PEER_DISCONNECTED, EVENT_RAW } from "../node.js";
 import { encode, type OaiRequestMsg, type ProtocolMessage } from "../protocol.js";
 import { FakeMistNode, flushMicrotasks } from "./fake-node.js";
 
@@ -186,8 +186,7 @@ describe("OaiTunnelClient <-> OaiTunnelProvider", () => {
     clientNode.emit(EVENT_RAW, "prov1", encode({ v: 1, type: "provider_hello", services: ["oai"] }));
     await flushMicrotasks();
 
-    // EVENT_PEER_DISCONNECTED = 6 (see ../node.ts).
-    clientNode.emit(6, "prov1", null);
+    clientNode.emit(EVENT_PEER_DISCONNECTED, "prov1", null);
     await expect(requestPromise).rejects.toMatchObject({ code: "PROVIDER_DISCONNECTED" });
   });
 });
